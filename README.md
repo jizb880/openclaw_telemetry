@@ -1,6 +1,8 @@
-# openclaw-otel-observability
+# openclaw_telemetry
 
 OpenTelemetry tracing for [OpenClaw](https://github.com/openclaw) gateways and agents. It records **Action** (request + agent turn), **Tool** (before/after tool calls), and **LLM** (prompt, completion, token usage) as connected spans and exports them over **OTLP/HTTP** in the standard OpenTelemetry pipeline.
+
+Repository: [github.com/jizb880/openclaw_telemetry](https://github.com/jizb880/openclaw_telemetry)
 
 Design references: patterns from [openclaw-observability-plugin](https://github.com/henrikrexed/openclaw-observability-plugin) (session spans, `api.on` hooks) and [openclaw-telemetry](https://github.com/knostic/openclaw-telemetry) (`before_tool_call` / `after_tool_call`).
 
@@ -113,4 +115,4 @@ Spans are exported with `@opentelemetry/exporter-trace-otlp-http`. Point `otlpEn
 
 ## License
 
-Apache-2.0
+Apache-2.0 — see [LICENSE](LICENSE).
