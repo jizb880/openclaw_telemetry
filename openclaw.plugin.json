@@ -1,0 +1,6 @@
+{
+  "id": "openclaw-otel-observability",
+  "name": "OpenTelemetry Observability",
+  "description": "Traces Action, Tool, and LLM calls and exports OTLP HTTP.",
+  "entry": "./dist/index.js"
+}

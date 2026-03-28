@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "serviceName": "openclaw",
+  "otlpEndpoint": "http://localhost:4318/v1/traces",
+  "captureAction": true,
+  "captureTool": true,
+  "captureLlm": true,
+  "captureLlmInput": true,
+  "captureLlmOutput": true,
+  "captureToolInput": true,
+  "captureToolOutput": true
+}
