@@ -1,2 +1,2 @@
 # openclaw_telemetry
-a telemtry plugin for openclaw
+a telemetry plugin for openclaw
