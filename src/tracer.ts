@@ -1,21 +1,23 @@
 import { context, trace, type Context, type Span, type SpanOptions, type Tracer } from "@opentelemetry/api";
-import { NodeSDK } from "@opentelemetry/sdk-node";
+import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
-import type { ObservabilityConfig } from "./config/observability.js";
+import { resolveOtelSpanExportFilePath, type ObservabilityConfig } from "./config/observability.js";
+import { JsonlFileSpanExporter } from "./exporters/jsonl-file-span-exporter.js";
 
 const INSTRUMENTATION_NAME = "openclaw-otel-observability";
 const INSTRUMENTATION_VERSION = "0.1.0";
 
 /**
- * Global singleton around `trace.getTracer()` and the Node SDK lifecycle.
+ * Global singleton around `trace.getTracer()` and the Node tracer provider lifecycle.
  * Spans use the active async context for automatic propagation.
  */
 export class GlobalTracer {
   private static instance: GlobalTracer | undefined;
 
-  private sdk: NodeSDK | null = null;
+  private provider: NodeTracerProvider | null = null;
   private apiTracer: Tracer | null = null;
 
   private constructor() {}
@@ -25,24 +27,34 @@ export class GlobalTracer {
     return GlobalTracer.instance;
   }
 
-  init(config: ObservabilityConfig): void {
+  init(
+    config: ObservabilityConfig,
+    resolveExportPath: (cfg: ObservabilityConfig) => string | null = resolveOtelSpanExportFilePath
+  ): void {
     if (!config.enabled) return;
-    if (this.sdk) return;
+    if (this.provider) return;
 
     const resource = resourceFromAttributes({
       [ATTR_SERVICE_NAME]: config.serviceName,
     });
 
-    const traceExporter = new OTLPTraceExporter({
+    const otlpExporter = new OTLPTraceExporter({
       url: config.otlpEndpoint,
     });
 
-    this.sdk = new NodeSDK({
+    const spanProcessors = [new BatchSpanProcessor(otlpExporter)];
+
+    const filePath = resolveExportPath(config);
+    if (filePath) {
+      spanProcessors.push(new BatchSpanProcessor(new JsonlFileSpanExporter(filePath)));
+    }
+
+    this.provider = new NodeTracerProvider({
       resource,
-      traceExporter,
+      spanProcessors,
     });
 
-    this.sdk.start();
+    this.provider.register();
     this.apiTracer = trace.getTracer(INSTRUMENTATION_NAME, INSTRUMENTATION_VERSION);
   }
 
@@ -57,31 +69,26 @@ export class GlobalTracer {
     return this.apiTracer;
   }
 
-  /**
-   * Start a span; defaults to `context.active()` so async work keeps the same trace.
-   */
   startSpan(name: string, options?: SpanOptions, parentContext?: Context): Span {
     const tracer = this.getTracer();
     const ctx = parentContext ?? context.active();
     return tracer.startSpan(name, options, ctx);
   }
 
-  /** Run `fn` with `ctx` as the active context (for async propagation). */
   withContext<T>(ctx: Context, fn: () => T): T {
     return context.with(ctx, fn);
   }
 
-  /** Run async `fn` with `ctx` active; returns a Promise that resolves in the same context chain. */
   async withContextAsync<T>(ctx: Context, fn: () => Promise<T>): Promise<T> {
     return context.with(ctx, fn);
   }
 
   async shutdown(): Promise<void> {
-    if (!this.sdk) return;
+    if (!this.provider) return;
     try {
-      await this.sdk.shutdown();
+      await this.provider.shutdown();
     } finally {
-      this.sdk = null;
+      this.provider = null;
       this.apiTracer = null;
     }
   }

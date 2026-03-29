@@ -2,6 +2,7 @@ import type { ObservabilityConfig } from "../config/observability.js";
 import type { GlobalTracer } from "../tracer.js";
 import { registerActionHooks } from "./action.js";
 import { registerLlmHooks } from "./llm.js";
+import { registerMessageHooks } from "./messages.js";
 import { registerToolHooks } from "./tool.js";
 
 export type PluginRegistrationMode = "full" | "setup-only" | "setup-runtime";
@@ -27,11 +28,13 @@ export function registerInterceptors(
   gt: GlobalTracer,
   cfg: ObservabilityConfig
 ): void {
+  registerMessageHooks(api, gt, cfg);
   registerActionHooks(api, gt, cfg);
   registerToolHooks(api, gt, cfg);
   registerLlmHooks(api, gt, cfg);
 }
 
 export { registerActionHooks } from "./action.js";
+export { registerMessageHooks } from "./messages.js";
 export { registerToolHooks } from "./tool.js";
 export { registerLlmHooks, enrichAgentSpanForLlm } from "./llm.js";

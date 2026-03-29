@@ -25,48 +25,6 @@ export function registerActionHooks(
   if (!cfg.captureAction) return;
 
   api.on(
-    "message_received",
-    (_event: unknown, ctx: unknown) => {
-      try {
-        const sessionKey = sessionKeyFrom(_event, ctx);
-        const event = _event as Record<string, unknown>;
-        const channel =
-          (typeof event.channel === "string" && event.channel) ||
-          (typeof event.channelId === "string" && event.channelId) ||
-          "unknown";
-        const from =
-          (typeof event.from === "string" && event.from) ||
-          (typeof event.senderId === "string" && event.senderId) ||
-          "unknown";
-
-        const rootSpan = gt.startSpan(
-          "openclaw.request",
-          {
-            kind: SpanKind.SERVER,
-            attributes: {
-              "openclaw.session.key": sessionKey,
-              "openclaw.message.channel": channel,
-              "openclaw.message.from": from,
-              "openclaw.message.direction": "inbound",
-            },
-          },
-          context.active()
-        );
-
-        const rootContext = trace.setSpan(context.active(), rootSpan);
-        sessionState.set(sessionKey, {
-          rootSpan,
-          rootContext,
-          startTime: Date.now(),
-        });
-      } catch {
-        /* never break host */
-      }
-    },
-    { priority: 100 }
-  );
-
-  api.on(
     "before_agent_start",
     (event: unknown, ctx: unknown) => {
       try {
