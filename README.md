@@ -85,6 +85,17 @@ set OBSERVABILITY_CONFIG=D:\path\to\observability.json
 
 **File export details:** Each line is one span JSON (trace id, attributes, timings, resource, etc.). The directory is created if needed. **Privacy:** prompts and payloads may be sensitive; disable capture flags or file export in production if required.
 
+### Sample collection log (NDJSON file)
+
+Default file name: `openclaw-otel-spans.jsonl` (under `otelSpanExportPath`). The file is **append-only**; each **line** is one exported span (same schema as written by `JsonlFileSpanExporter`). Example after a short gateway session (IDs and timestamps are illustrative):
+
+```jsonl
+{"name":"openclaw.request","kind":1,"traceId":"a1b2c3d4e5f6789012345678abcdef01","spanId":"1111111111111111","startTimeUnixNano":"1730000000000000000","endTimeUnixNano":"1730000000500000000","durationUnixNano":"500000000","attributes":{"openclaw.session.key":"session:main:abc","openclaw.message.channel":"telegram","openclaw.message.from":"user-1","openclaw.message.direction":"inbound","openclaw.message.content_length":42,"openclaw.hook":"message_received"},"status":{"code":1},"events":[],"resource":{"service.name":"openclaw"},"instrumentationScope":{"name":"openclaw-otel-observability","version":"0.1.0"}}
+{"name":"openclaw.action","kind":0,"traceId":"a1b2c3d4e5f6789012345678abcdef01","spanId":"2222222222222222","parentSpanId":"1111111111111111","startTimeUnixNano":"1730000000100000000","endTimeUnixNano":"1730000000400000000","durationUnixNano":"300000000","attributes":{"openclaw.session.key":"session:main:abc","openclaw.agent.id":"agent-main","openclaw.agent.model":"anthropic/claude-sonnet-4","gen_ai.usage.input_tokens":1200,"gen_ai.usage.output_tokens":300,"gen_ai.response.model":"anthropic/claude-sonnet-4"},"status":{"code":1},"events":[],"resource":{"service.name":"openclaw"},"instrumentationScope":{"name":"openclaw-otel-observability","version":"0.1.0"}}
+```
+
+In a real file, lines are typically longer (more attributes when capture flags are on). Use `jq -c . openclaw-otel-spans.jsonl` to pretty-print one line at a time.
+
 ## Use as an OpenClaw plugin
 
 1. `npm run build`

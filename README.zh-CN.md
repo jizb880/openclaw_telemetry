@@ -83,6 +83,17 @@ set OBSERVABILITY_CONFIG=D:\path\to\observability.json
 
 **隐私提示：** 提示词、补全与工具载荷可能含敏感信息；生产环境请按需关闭采集项或关闭文件导出。
 
+### 采集结果日志示例（NDJSON 文件）
+
+默认文件名：`openclaw-otel-spans.jsonl`（位于 `otelSpanExportPath` 所设目录下）。文件为 **追加写入**，**每一行** 是一条已导出 Span 的 JSON（与 `JsonlFileSpanExporter` 输出结构一致）。以下为网关运行一小段时间后的示意（Trace/Span ID 与时间戳仅为示例）：
+
+```jsonl
+{"name":"openclaw.request","kind":1,"traceId":"a1b2c3d4e5f6789012345678abcdef01","spanId":"1111111111111111","startTimeUnixNano":"1730000000000000000","endTimeUnixNano":"1730000000500000000","durationUnixNano":"500000000","attributes":{"openclaw.session.key":"session:main:abc","openclaw.message.channel":"telegram","openclaw.message.from":"user-1","openclaw.message.direction":"inbound","openclaw.message.content_length":42,"openclaw.hook":"message_received"},"status":{"code":1},"events":[],"resource":{"service.name":"openclaw"},"instrumentationScope":{"name":"openclaw-otel-observability","version":"0.1.0"}}
+{"name":"openclaw.action","kind":0,"traceId":"a1b2c3d4e5f6789012345678abcdef01","spanId":"2222222222222222","parentSpanId":"1111111111111111","startTimeUnixNano":"1730000000100000000","endTimeUnixNano":"1730000000400000000","durationUnixNano":"300000000","attributes":{"openclaw.session.key":"session:main:abc","openclaw.agent.id":"agent-main","openclaw.agent.model":"anthropic/claude-sonnet-4","gen_ai.usage.input_tokens":1200,"gen_ai.usage.output_tokens":300,"gen_ai.response.model":"anthropic/claude-sonnet-4"},"status":{"code":1},"events":[],"resource":{"service.name":"openclaw"},"instrumentationScope":{"name":"openclaw-otel-observability","version":"0.1.0"}}
+```
+
+实际运行中，开启更多 `capture*` 项后，每行 JSON 往往更长。可用 `jq -c . openclaw-otel-spans.jsonl` 逐行格式化查看。
+
 ## 作为 OpenClaw 插件使用
 
 1. 执行 `npm run build`。  
