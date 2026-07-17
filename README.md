@@ -1,6 +1,6 @@
 # openclaw_telemetry
 
-OpenTelemetry tracing for [OpenClaw](https://github.com/openclaw) gateways and agents. It records **Action** (agent turn), **Messages** (in/out), **Tool** (before/after tool calls), and **LLM** (prompt, completion, token usage) as connected spans. Spans are exported to **OTLP/HTTP** and optionally appended as **NDJSON lines** to a local file for offline inspection.
+OpenTelemetry tracing for [OpenClaw](https://github.com/openclaw) gateways and agents. It records **Action** (agent turn), **Messages** (in/out), **Tool** (before/after tool calls), and **LLM** (prompt, completion, token usage) as connected spans. Spans are exported to **OTLP/HTTP** and optionally appended as **OTLP/JSON NDJSON lines** to a local file for offline inspection.
 
 Repository: [github.com/jizb880/openclaw_telemetry](https://github.com/jizb880/openclaw_telemetry)
 
@@ -36,7 +36,7 @@ This plugin only registers when `api.registrationMode` is **`"full"`** or **unde
 ## Features
 
 - **`@opentelemetry/sdk-trace-node` + `@opentelemetry/api`**: `NodeTracerProvider` with `BatchSpanProcessor`.
-- **Dual export**: OTLP HTTP (`otlpEndpoint`) + optional **NDJSON file** (`otelSpanExportPath`) with the same span batches.
+- **Dual export**: OTLP HTTP (`otlpEndpoint`) + optional **NDJSON file** (`otelSpanExportPath`) carrying the same spans in standard **OTLP/JSON** encoding.
 - **`GlobalTracer`**: `startSpan`, `withContext` / `withContextAsync`.
 - **Config**: `config/observability.json` (or `OBSERVABILITY_CONFIG`).
 
@@ -83,18 +83,57 @@ set OBSERVABILITY_CONFIG=D:\path\to\observability.json
 | `captureToolInput` | boolean | Tool params on span. |
 | `captureToolOutput` | boolean | Tool result on span. |
 
-**File export details:** Each line is one span JSON (trace id, attributes, timings, resource, etc.). The directory is created if needed. **Privacy:** prompts and payloads may be sensitive; disable capture flags or file export in production if required.
+**File export details:** Each line is one standard **OTLP/JSON** `ExportTraceServiceRequest` (`resourceSpans` → `scopeSpans` → `spans`) covering one exported batch — the exact payload the OTLP HTTP exporter sends, produced by `@opentelemetry/otlp-transformer`. The file can be consumed directly by the OTel Collector's `otlpjsonfile` receiver. The directory is created if needed. **Privacy:** prompts and payloads may be sensitive; disable capture flags or file export in production if required.
 
 ### Sample collection log (NDJSON file)
 
-Default file name: `openclaw-otel-spans.jsonl` (under `otelSpanExportPath`). The file is **append-only**; each **line** is one exported span (same schema as written by `JsonlFileSpanExporter`). Example after a short gateway session (IDs and timestamps are illustrative):
+Default file name: `openclaw-otel-spans.jsonl` (under `otelSpanExportPath`). The file is **append-only**; each **line** is one OTLP/JSON request holding all spans of that export batch. Example after a short gateway session (IDs and timestamps are illustrative, shown pretty-printed — the real file has one compact JSON object per line):
 
-```jsonl
-{"name":"openclaw.request","kind":1,"traceId":"a1b2c3d4e5f6789012345678abcdef01","spanId":"1111111111111111","startTimeUnixNano":"1730000000000000000","endTimeUnixNano":"1730000000500000000","durationUnixNano":"500000000","attributes":{"openclaw.session.key":"session:main:abc","openclaw.message.channel":"telegram","openclaw.message.from":"user-1","openclaw.message.direction":"inbound","openclaw.message.content_length":42,"openclaw.hook":"message_received"},"status":{"code":1},"events":[],"resource":{"service.name":"openclaw"},"instrumentationScope":{"name":"openclaw-otel-observability","version":"0.1.0"}}
-{"name":"openclaw.action","kind":0,"traceId":"a1b2c3d4e5f6789012345678abcdef01","spanId":"2222222222222222","parentSpanId":"1111111111111111","startTimeUnixNano":"1730000000100000000","endTimeUnixNano":"1730000000400000000","durationUnixNano":"300000000","attributes":{"openclaw.session.key":"session:main:abc","openclaw.agent.id":"agent-main","openclaw.agent.model":"anthropic/claude-sonnet-4","gen_ai.usage.input_tokens":1200,"gen_ai.usage.output_tokens":300,"gen_ai.response.model":"anthropic/claude-sonnet-4"},"status":{"code":1},"events":[],"resource":{"service.name":"openclaw"},"instrumentationScope":{"name":"openclaw-otel-observability","version":"0.1.0"}}
+```json
+{
+  "resourceSpans": [{
+    "resource": { "attributes": [{ "key": "service.name", "value": { "stringValue": "openclaw" } }] },
+    "scopeSpans": [{
+      "scope": { "name": "openclaw-otel-observability", "version": "0.1.0" },
+      "spans": [
+        {
+          "traceId": "a1b2c3d4e5f6789012345678abcdef01",
+          "spanId": "1111111111111111",
+          "name": "openclaw.request",
+          "kind": 2,
+          "startTimeUnixNano": "1730000000000000000",
+          "endTimeUnixNano": "1730000000500000000",
+          "attributes": [
+            { "key": "openclaw.session.key", "value": { "stringValue": "session:main:abc" } },
+            { "key": "openclaw.message.channel", "value": { "stringValue": "telegram" } },
+            { "key": "openclaw.message.direction", "value": { "stringValue": "inbound" } },
+            { "key": "openclaw.message.content_length", "value": { "intValue": 42 } }
+          ],
+          "status": { "code": 1 }
+        },
+        {
+          "traceId": "a1b2c3d4e5f6789012345678abcdef01",
+          "spanId": "2222222222222222",
+          "parentSpanId": "1111111111111111",
+          "name": "openclaw.action",
+          "kind": 1,
+          "startTimeUnixNano": "1730000000100000000",
+          "endTimeUnixNano": "1730000000400000000",
+          "attributes": [
+            { "key": "openclaw.agent.id", "value": { "stringValue": "agent-main" } },
+            { "key": "gen_ai.usage.input_tokens", "value": { "intValue": 1200 } },
+            { "key": "gen_ai.usage.output_tokens", "value": { "intValue": 300 } },
+            { "key": "gen_ai.response.model", "value": { "stringValue": "anthropic/claude-sonnet-4" } }
+          ],
+          "status": { "code": 1 }
+        }
+      ]
+    }]
+  }]
+}
 ```
 
-In a real file, lines are typically longer (more attributes when capture flags are on). Use `jq -c . openclaw-otel-spans.jsonl` to pretty-print one line at a time.
+Span `kind` and `status.code` use OTLP proto enum values (e.g. `kind`: 1 = INTERNAL, 2 = SERVER; `status.code`: 1 = OK, 2 = ERROR). In a real file, lines are typically longer (more attributes when capture flags are on). Use `jq . openclaw-otel-spans.jsonl` to pretty-print one line at a time, or `jq '.resourceSpans[].scopeSpans[].spans[]' openclaw-otel-spans.jsonl` to list individual spans.
 
 ## Use as an OpenClaw plugin
 

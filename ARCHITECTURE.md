@@ -80,7 +80,7 @@ openclaw_telemetry/
 
 | 文件 | 说明 |
 |------|------|
-| `jsonl-file-span-exporter.ts` | **自定义 SpanExporter 实现**。将 Span 以 NDJSON 格式（每行一个 JSON 对象）追加写入本地文件。内部工具函数包括 `hrToNanos()`（高精度时间转纳秒）、`serializeAttributes()`（属性序列化）和 `spanToJsonLine()`（Span 转 JSON）。自动创建所需目录，适用于离线检查和日志聚合管道。 |
+| `jsonl-file-span-exporter.ts` | **自定义 SpanExporter 实现**。使用官方 `@opentelemetry/otlp-transformer` 的 `JsonTraceSerializer` 将每个导出批次序列化为标准 **OTLP/JSON** `ExportTraceServiceRequest`，以 NDJSON 形式（每行一个请求 JSON）追加写入本地文件，与 OTLP HTTP 上报载荷完全一致。自动创建所需目录，可直接被 OTel Collector `otlpjsonfile` receiver 等标准工具消费。 |
 
 ### src/interceptors/
 
@@ -122,4 +122,4 @@ openclaw.request (根 Span)          ← messages.ts: message_received (优先�
 
 3. **配置驱动的细粒度控制** — 每类拦截器可通过布尔标志独立启用/禁用（`captureAction`、`captureMessages`、`captureTool`、`captureLlm`），支持按需调节隐私和性能。
 
-4. **双通道导出** — Span 同时发送到 OTLP/HTTP 端点（用于 Jaeger/Grafana 等后端）和本地 NDJSON 文件（用于离线分析），两者均通过 `BatchSpanProcessor` 批量处理。
+4. **双通道导出** — Span 同时发送到 OTLP/HTTP 端点（用于 Jaeger/Grafana 等后端）和本地 NDJSON 文件（标准 OTLP/JSON 编码，用于离线分析），两者均通过 `BatchSpanProcessor` 批量处理。

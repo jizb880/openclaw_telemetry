@@ -34,7 +34,7 @@
 ## 功能概要
 
 - **`@opentelemetry/sdk-trace-node` + `@opentelemetry/api`**：`NodeTracerProvider` + `BatchSpanProcessor`。
-- **双路导出**：OTLP HTTP（`otlpEndpoint`）+ 可选 **本地 NDJSON 文件**（`otelSpanExportPath`），写入内容与 OTLP 侧为同一批已采样 Span。
+- **双路导出**：OTLP HTTP（`otlpEndpoint`）+ 可选 **本地 NDJSON 文件**（`otelSpanExportPath`），文件内容采用标准 **OTLP/JSON** 编码，与 OTLP 侧为同一批已采样 Span。
 - **`GlobalTracer`**：`startSpan`、`withContext` / `withContextAsync`。
 - **配置**：`config/observability.json` 或环境变量 `OBSERVABILITY_CONFIG`。
 
@@ -85,14 +85,53 @@ set OBSERVABILITY_CONFIG=D:\path\to\observability.json
 
 ### 采集结果日志示例（NDJSON 文件）
 
-默认文件名：`openclaw-otel-spans.jsonl`（位于 `otelSpanExportPath` 所设目录下）。文件为 **追加写入**，**每一行** 是一条已导出 Span 的 JSON（与 `JsonlFileSpanExporter` 输出结构一致）。以下为网关运行一小段时间后的示意（Trace/Span ID 与时间戳仅为示例）：
+默认文件名：`openclaw-otel-spans.jsonl`（位于 `otelSpanExportPath` 所设目录下）。文件为 **追加写入**，**每一行** 是一个标准 **OTLP/JSON** `ExportTraceServiceRequest`（`resourceSpans` → `scopeSpans` → `spans` 层级），包含该导出批次的全部 Span——与 OTLP HTTP 上报内容完全一致（由官方 `@opentelemetry/otlp-transformer` 序列化），可直接被 OTel Collector 的 `otlpjsonfile` receiver 等标准工具消费。以下为示意（ID 与时间戳仅为示例，此处为便于阅读做了格式化；实际文件中每行是一个紧凑 JSON）：
 
-```jsonl
-{"name":"openclaw.request","kind":1,"traceId":"a1b2c3d4e5f6789012345678abcdef01","spanId":"1111111111111111","startTimeUnixNano":"1730000000000000000","endTimeUnixNano":"1730000000500000000","durationUnixNano":"500000000","attributes":{"openclaw.session.key":"session:main:abc","openclaw.message.channel":"telegram","openclaw.message.from":"user-1","openclaw.message.direction":"inbound","openclaw.message.content_length":42,"openclaw.hook":"message_received"},"status":{"code":1},"events":[],"resource":{"service.name":"openclaw"},"instrumentationScope":{"name":"openclaw-otel-observability","version":"0.1.0"}}
-{"name":"openclaw.action","kind":0,"traceId":"a1b2c3d4e5f6789012345678abcdef01","spanId":"2222222222222222","parentSpanId":"1111111111111111","startTimeUnixNano":"1730000000100000000","endTimeUnixNano":"1730000000400000000","durationUnixNano":"300000000","attributes":{"openclaw.session.key":"session:main:abc","openclaw.agent.id":"agent-main","openclaw.agent.model":"anthropic/claude-sonnet-4","gen_ai.usage.input_tokens":1200,"gen_ai.usage.output_tokens":300,"gen_ai.response.model":"anthropic/claude-sonnet-4"},"status":{"code":1},"events":[],"resource":{"service.name":"openclaw"},"instrumentationScope":{"name":"openclaw-otel-observability","version":"0.1.0"}}
+```json
+{
+  "resourceSpans": [{
+    "resource": { "attributes": [{ "key": "service.name", "value": { "stringValue": "openclaw" } }] },
+    "scopeSpans": [{
+      "scope": { "name": "openclaw-otel-observability", "version": "0.1.0" },
+      "spans": [
+        {
+          "traceId": "a1b2c3d4e5f6789012345678abcdef01",
+          "spanId": "1111111111111111",
+          "name": "openclaw.request",
+          "kind": 2,
+          "startTimeUnixNano": "1730000000000000000",
+          "endTimeUnixNano": "1730000000500000000",
+          "attributes": [
+            { "key": "openclaw.session.key", "value": { "stringValue": "session:main:abc" } },
+            { "key": "openclaw.message.channel", "value": { "stringValue": "telegram" } },
+            { "key": "openclaw.message.direction", "value": { "stringValue": "inbound" } },
+            { "key": "openclaw.message.content_length", "value": { "intValue": 42 } }
+          ],
+          "status": { "code": 1 }
+        },
+        {
+          "traceId": "a1b2c3d4e5f6789012345678abcdef01",
+          "spanId": "2222222222222222",
+          "parentSpanId": "1111111111111111",
+          "name": "openclaw.action",
+          "kind": 1,
+          "startTimeUnixNano": "1730000000100000000",
+          "endTimeUnixNano": "1730000000400000000",
+          "attributes": [
+            { "key": "openclaw.agent.id", "value": { "stringValue": "agent-main" } },
+            { "key": "gen_ai.usage.input_tokens", "value": { "intValue": 1200 } },
+            { "key": "gen_ai.usage.output_tokens", "value": { "intValue": 300 } },
+            { "key": "gen_ai.response.model", "value": { "stringValue": "anthropic/claude-sonnet-4" } }
+          ],
+          "status": { "code": 1 }
+        }
+      ]
+    }]
+  }]
+}
 ```
 
-实际运行中，开启更多 `capture*` 项后，每行 JSON 往往更长。可用 `jq -c . openclaw-otel-spans.jsonl` 逐行格式化查看。
+Span 的 `kind` 与 `status.code` 使用 OTLP proto 枚举值（如 `kind`：1 = INTERNAL、2 = SERVER；`status.code`：1 = OK、2 = ERROR）。实际运行中，开启更多 `capture*` 项后，每行 JSON 往往更长。可用 `jq . openclaw-otel-spans.jsonl` 逐行格式化查看，或用 `jq '.resourceSpans[].scopeSpans[].spans[]' openclaw-otel-spans.jsonl` 展开逐个 Span。
 
 ## 作为 OpenClaw 插件使用
 
