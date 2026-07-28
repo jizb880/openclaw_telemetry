@@ -1,0 +1,19 @@
+{
+  "hook": "session_start",
+  "span": "openclaw.session.start",
+  "conversationHook": false,
+  "sampleSpan": {
+    "name": "openclaw.session.start",
+    "kind": 1,
+    "traceId": "a027c37a8c7b29ae8f61d94671cbeee5",
+    "spanId": "e6453c64fb6557e3",
+    "status": {
+      "code": 0
+    },
+    "attributes": {
+      "openclaw.session.key": "agent:main:discord:chan-42#samples",
+      "openclaw.hook": "session_start",
+      "openclaw.session.id": "sess-01JQ8X2Y3Z"
+    }
+  }
+}

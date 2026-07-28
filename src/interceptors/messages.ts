@@ -1,6 +1,7 @@
 import { context, SpanKind, trace } from "@opentelemetry/api";
 import type { ObservabilityConfig } from "../config/observability.js";
 import type { GlobalTracer } from "../tracer.js";
+import { textAttr } from "../util/attributes.js";
 import { sessionState } from "./state.js";
 
 function sessionKeyFrom(event: unknown, ctx: unknown): string {
@@ -81,6 +82,50 @@ export function registerMessageHooks(
     },
     { priority: 100 }
   );
+
+  // Outbound rewrite/cancel hook. Observe-only here: we capture content + target
+  // and return nothing so delivery is unaffected.
+  if (cfg.captureMessageSending) {
+    api.on(
+      "message_sending",
+      (event: unknown, ctx: unknown) => {
+        try {
+          const sessionKey = sessionKeyFrom(event, ctx);
+          const ev = event as Record<string, unknown>;
+          const c = ctx as Record<string, unknown>;
+          const channel = typeof c.channelId === "string" ? c.channelId : "unknown";
+          const to = typeof ev.to === "string" ? ev.to : "unknown";
+
+          const s = sessionState.get(sessionKey);
+          const parentContext = s?.agentContext ?? s?.rootContext ?? context.active();
+
+          const attrs: Record<string, string | number | boolean> = {
+            "openclaw.session.key": sessionKey,
+            "openclaw.message.channel": channel,
+            "openclaw.message.to": to,
+            "openclaw.message.direction": "outbound",
+            "openclaw.hook": "message_sending",
+          };
+          const content = textAttr(typeof ev.content === "string" ? ev.content : undefined);
+          if (content) attrs["openclaw.message.content"] = content;
+          if (typeof ev.content === "string") attrs["openclaw.message.content_length"] = ev.content.length;
+          if (typeof ev.threadId === "string" || typeof ev.threadId === "number") {
+            attrs["openclaw.message.thread_id"] = String(ev.threadId);
+          }
+
+          gt.startSpan(
+            "openclaw.message.sending",
+            { kind: SpanKind.SERVER, attributes: attrs },
+            parentContext
+          ).end();
+        } catch {
+          /* ignore */
+        }
+        return undefined;
+      },
+      { priority: 60 }
+    );
+  }
 
   api.on(
     "message_sent",

@@ -1,0 +1,51 @@
+{
+  "hook": "llm_input",
+  "span": "openclaw.llm.input",
+  "conversationHook": true,
+  "fieldMapping": [
+    {
+      "requested": "content",
+      "hostField": "prompt",
+      "attribute": "openclaw.llm.content"
+    },
+    {
+      "requested": "systemPrompt",
+      "hostField": "systemPrompt",
+      "attribute": "openclaw.llm.system_prompt"
+    },
+    {
+      "requested": "historyCount",
+      "hostField": "historyMessages",
+      "attribute": "openclaw.llm.history_count",
+      "note": "derived: historyMessages.length"
+    },
+    {
+      "requested": "observeOnly:true",
+      "hostField": "(none)",
+      "attribute": "openclaw.llm.observe_only",
+      "note": "not a host field; the hook is read-only by contract, we stamp the flag ourselves"
+    }
+  ],
+  "sampleSpan": {
+    "name": "openclaw.llm.input",
+    "kind": 1,
+    "traceId": "ec4824f3fd0a795df14b39c058a670a9",
+    "spanId": "2c7005e8240b755b",
+    "parentSpanId": "24e56b1a3372ae9e",
+    "status": {
+      "code": 0
+    },
+    "attributes": {
+      "openclaw.session.key": "agent:main:discord:chan-42#samples",
+      "openclaw.hook": "llm_input",
+      "openclaw.llm.observe_only": true,
+      "gen_ai.system": "anthropic",
+      "gen_ai.request.model": "claude-opus-4-8",
+      "openclaw.run.id": "9f1c2e7a-4b6d-4f10-9c3e-7a2b5d8e1f04",
+      "openclaw.llm.images_count": 0,
+      "openclaw.llm.content": "帮我查一下上海明天的天气，然后总结成一句话。",
+      "openclaw.llm.system_prompt": "You are OpenClaw, a helpful autonomous agent. Answer concisely.",
+      "openclaw.llm.history_count": 4
+    }
+  }
+}

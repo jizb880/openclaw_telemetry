@@ -30,7 +30,7 @@ const plugin = {
       start: async () => {
         const filePath = resolveOtelSpanExportFilePath(config);
         logger?.info?.(
-          `[otel] OTLP → ${config.otlpEndpoint}` +
+          `[otel] OTLP ${config.otlpEnabled ? `→ ${config.otlpEndpoint}` : "off"}` +
             (filePath ? ` | NDJSON file → ${filePath}` : " | NDJSON file export off")
         );
       },
@@ -54,7 +54,11 @@ export {
 export {
   registerInterceptors,
   registerActionHooks,
+  registerAgentRunHooks,
+  registerCompactionHooks,
   registerMessageHooks,
+  registerModelCallHooks,
+  registerSessionHooks,
   registerToolHooks,
   registerLlmHooks,
   enrichAgentSpanForLlm,

@@ -2,14 +2,21 @@
   "enabled": true,
   "serviceName": "openclaw",
   "otlpEndpoint": "http://localhost:4318/v1/traces",
+  "otlpEnabled": true,
   "otelSpanExportEnabled": true,
   "otelSpanExportPath": ".",
   "captureAction": true,
   "captureMessages": true,
+  "captureMessageSending": true,
   "captureTool": true,
   "captureLlm": true,
   "captureLlmInput": true,
   "captureLlmOutput": true,
   "captureToolInput": true,
-  "captureToolOutput": true
+  "captureToolOutput": true,
+  "captureAgentRun": true,
+  "captureModelCall": true,
+  "captureToolResultPersist": true,
+  "captureSession": true,
+  "captureCompaction": true
 }

@@ -38,11 +38,14 @@ export class GlobalTracer {
       [ATTR_SERVICE_NAME]: config.serviceName,
     });
 
-    const otlpExporter = new OTLPTraceExporter({
-      url: config.otlpEndpoint,
-    });
+    const spanProcessors = [];
 
-    const spanProcessors = [new BatchSpanProcessor(otlpExporter)];
+    if (config.otlpEnabled) {
+      const otlpExporter = new OTLPTraceExporter({
+        url: config.otlpEndpoint,
+      });
+      spanProcessors.push(new BatchSpanProcessor(otlpExporter));
+    }
 
     const filePath = resolveExportPath(config);
     if (filePath) {
@@ -81,6 +84,11 @@ export class GlobalTracer {
 
   async withContextAsync<T>(ctx: Context, fn: () => Promise<T>): Promise<T> {
     return context.with(ctx, fn);
+  }
+
+  /** Push all buffered spans to the configured exporters without tearing down. */
+  async forceFlush(): Promise<void> {
+    await this.provider?.forceFlush();
   }
 
   async shutdown(): Promise<void> {

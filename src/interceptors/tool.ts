@@ -16,6 +16,7 @@ function sessionKeyFrom(event: unknown, ctx: unknown): string {
 
 /**
  * Tool calls: `before_tool_call` opens a span; `after_tool_call` closes it (async-safe via stack).
+ * `tool_result_persist` (host ≥ 2026.7) emits a short observe-only span at persistence time.
  */
 export function registerToolHooks(
   api: { on: (name: string, fn: (...args: unknown[]) => unknown, opts?: unknown) => void },
@@ -87,6 +88,7 @@ export function registerToolHooks(
         const output = ev.result ?? ev.output;
         if (cfg.captureToolOutput && success && output !== undefined) {
           span.setAttribute("openclaw.tool.output", jsonAttr(output));
+          span.setAttribute("openclaw.tool.result_chars", jsonAttr(output).length);
         }
         if (!success && err) {
           span.setAttribute("openclaw.tool.error", String(err).slice(0, 2000));
@@ -105,4 +107,56 @@ export function registerToolHooks(
     },
     { priority: -50 }
   );
+
+  // Tool-result persistence rewrite point (host ≥ 2026.7). MUST be synchronous —
+  // the host ignores (and warns on) a Promise return here. We observe only and
+  // never return a rewritten message, so persistence is unaffected.
+  if (cfg.captureToolResultPersist) {
+    api.on(
+      "tool_result_persist",
+      (event: unknown, ctx: unknown) => {
+        try {
+          const sessionKey = sessionKeyFrom(event, ctx);
+          const s = sessionState.get(sessionKey);
+          const parent = s?.agentContext ?? s?.rootContext;
+          const ev = event as Record<string, unknown>;
+
+          const attrs: Record<string, string | number | boolean> = {
+            "openclaw.session.key": sessionKey,
+            "openclaw.hook": "tool_result_persist",
+          };
+          const c = ctx as Record<string, unknown>;
+          const toolName =
+            (typeof ev.toolName === "string" && ev.toolName) ||
+            (typeof c?.toolName === "string" && c.toolName) ||
+            "unknown";
+          attrs["openclaw.tool.name"] = toolName;
+          if (typeof ev.toolCallId === "string") attrs["openclaw.tool.call_id"] = ev.toolCallId;
+          if (typeof ev.isSynthetic === "boolean") attrs["openclaw.tool.is_synthetic"] = ev.isSynthetic;
+
+          // The tool result lives in `message.content`; there is no separate `result` field.
+          const message = ev.message;
+          if (cfg.captureToolOutput && message !== undefined) {
+            attrs["openclaw.tool.persist_message"] = jsonAttr(message);
+            const content = (message as Record<string, unknown> | null)?.content;
+            if (content !== undefined) {
+              const rendered = jsonAttr(content);
+              attrs["openclaw.tool.persist_result"] = rendered;
+              attrs["openclaw.tool.persist_result_chars"] = rendered.length;
+            }
+          }
+
+          gt.startSpan(
+            "openclaw.tool.result_persist",
+            { kind: SpanKind.INTERNAL, attributes: attrs },
+            parent
+          ).end();
+        } catch {
+          /* ignore */
+        }
+        // Synchronous, no return → no rewrite.
+      },
+      { priority: 50 }
+    );
+  }
 }

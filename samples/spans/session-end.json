@@ -1,0 +1,23 @@
+{
+  "hook": "session_end",
+  "span": "openclaw.session.end",
+  "conversationHook": false,
+  "sampleSpan": {
+    "name": "openclaw.session.end",
+    "kind": 1,
+    "traceId": "5ef0553017b2d3d9a45b1bda93368441",
+    "spanId": "63707d85a5a783af",
+    "status": {
+      "code": 0
+    },
+    "attributes": {
+      "openclaw.session.key": "agent:main:discord:chan-42#samples",
+      "openclaw.hook": "session_end",
+      "openclaw.session.id": "sess-01JQ8X2Y3Z",
+      "openclaw.session.reason": "idle",
+      "openclaw.session.message_count": 6,
+      "openclaw.session.duration_ms": 61004,
+      "openclaw.session.transcript_archived": true
+    }
+  }
+}

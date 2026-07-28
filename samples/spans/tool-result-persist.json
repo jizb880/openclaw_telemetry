@@ -1,0 +1,40 @@
+{
+  "hook": "tool_result_persist",
+  "span": "openclaw.tool.result_persist",
+  "conversationHook": false,
+  "minHost": "2026.7",
+  "fieldMapping": [
+    {
+      "requested": "result",
+      "hostField": "message.content",
+      "attribute": "openclaw.tool.persist_result",
+      "note": "host has no separate result field; the payload is inside message"
+    },
+    {
+      "requested": "message",
+      "hostField": "message",
+      "attribute": "openclaw.tool.persist_message"
+    }
+  ],
+  "notes": "Handler MUST be synchronous — the host ignores and warns on a Promise return.",
+  "sampleSpan": {
+    "name": "openclaw.tool.result_persist",
+    "kind": 1,
+    "traceId": "ec4824f3fd0a795df14b39c058a670a9",
+    "spanId": "bb89e0dea0d869e0",
+    "parentSpanId": "24e56b1a3372ae9e",
+    "status": {
+      "code": 0
+    },
+    "attributes": {
+      "openclaw.session.key": "agent:main:discord:chan-42#samples",
+      "openclaw.hook": "tool_result_persist",
+      "openclaw.tool.name": "web_search",
+      "openclaw.tool.call_id": "toolu_01ABCDEF",
+      "openclaw.tool.is_synthetic": false,
+      "openclaw.tool.persist_message": "{\"role\":\"toolResult\",\"content\":[{\"type\":\"text\",\"text\":\"上海：明天多云转晴，24-31°C，东南风 3 级。\"}],\"toolCallId\":\"toolu_01ABCDEF\"}",
+      "openclaw.tool.persist_result": "[{\"type\":\"text\",\"text\":\"上海：明天多云转晴，24-31°C，东南风 3 级。\"}]",
+      "openclaw.tool.persist_result_chars": 53
+    }
+  }
+}

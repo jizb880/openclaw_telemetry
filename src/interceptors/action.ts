@@ -2,7 +2,7 @@ import { context, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import type { ObservabilityConfig } from "../config/observability.js";
 import type { GlobalTracer } from "../tracer.js";
 import { enrichAgentSpanForLlm } from "./llm.js";
-import { sessionState, toolStacks } from "./state.js";
+import { clearModelCallsForRun, sessionState, toolStacks } from "./state.js";
 
 function sessionKeyFrom(event: unknown, ctx: unknown): string {
   const e = event as Record<string, unknown> | undefined;
@@ -104,6 +104,10 @@ export function registerActionHooks(
         const success = ev.success !== false;
         const durationMs = typeof ev.durationMs === "number" ? ev.durationMs : undefined;
         const err = ev.error;
+
+        // Drop any leftover model-call spans for this run so nothing leaks.
+        const runId = typeof ev.runId === "string" ? ev.runId : undefined;
+        if (runId) clearModelCallsForRun(runId);
 
         if (s.agentSpan) {
           enrichAgentSpanForLlm(s.agentSpan, ev, cfg);

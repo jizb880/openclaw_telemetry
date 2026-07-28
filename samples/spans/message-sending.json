@@ -1,0 +1,37 @@
+{
+  "hook": "message_sending",
+  "span": "openclaw.message.sending",
+  "conversationHook": false,
+  "fieldMapping": [
+    {
+      "requested": "content",
+      "hostField": "content",
+      "attribute": "openclaw.message.content"
+    },
+    {
+      "requested": "to",
+      "hostField": "to",
+      "attribute": "openclaw.message.to"
+    }
+  ],
+  "sampleSpan": {
+    "name": "openclaw.message.sending",
+    "kind": 2,
+    "traceId": "ec4824f3fd0a795df14b39c058a670a9",
+    "spanId": "c94dd4e757d6f622",
+    "parentSpanId": "24e56b1a3372ae9e",
+    "status": {
+      "code": 0
+    },
+    "attributes": {
+      "openclaw.session.key": "agent:main:discord:chan-42#samples",
+      "openclaw.message.channel": "discord",
+      "openclaw.message.to": "user-777",
+      "openclaw.message.direction": "outbound",
+      "openclaw.hook": "message_sending",
+      "openclaw.message.content": "上海明天多云转晴，气温 24-31°C，适合外出。",
+      "openclaw.message.content_length": 25,
+      "openclaw.message.thread_id": "thread-9"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "hook": "before_compaction",
+  "span": "openclaw.compaction.before",
+  "conversationHook": false,
+  "legacyAliases": [
+    "before_context_prune"
+  ],
+  "sampleSpan": {
+    "name": "openclaw.compaction.before",
+    "kind": 1,
+    "traceId": "ec4824f3fd0a795df14b39c058a670a9",
+    "spanId": "8fe877d38f4182c9",
+    "parentSpanId": "24e56b1a3372ae9e",
+    "status": {
+      "code": 0
+    },
+    "attributes": {
+      "openclaw.session.key": "agent:main:discord:chan-42#samples",
+      "openclaw.hook": "before_compaction",
+      "openclaw.compaction.phase": "before",
+      "openclaw.compaction.message_count": 128,
+      "openclaw.compaction.compacting_count": 96,
+      "openclaw.compaction.token_count": 181400
+    }
+  }
+}

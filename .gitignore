@@ -1,5 +1,7 @@
 node_modules/
 dist/
+.test-build/
 *.log
 .env
 .DS_Store
+openclaw-otel-spans.jsonl

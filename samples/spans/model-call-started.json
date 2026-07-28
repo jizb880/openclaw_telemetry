@@ -1,0 +1,33 @@
+{
+  "hook": "model_call_started",
+  "span": "openclaw.model_call",
+  "conversationHook": false,
+  "notes": "Sanitized: no prompt/response/headers by host design.",
+  "sampleSpan": {
+    "name": "openclaw.model_call",
+    "kind": 3,
+    "traceId": "ec4824f3fd0a795df14b39c058a670a9",
+    "spanId": "411cd09252646c6e",
+    "parentSpanId": "24e56b1a3372ae9e",
+    "status": {
+      "code": 1
+    },
+    "attributes": {
+      "openclaw.session.key": "agent:main:discord:chan-42#samples",
+      "openclaw.hook": "model_call_started",
+      "openclaw.run.id": "9f1c2e7a-4b6d-4f10-9c3e-7a2b5d8e1f04",
+      "openclaw.model_call.id": "call-0001",
+      "gen_ai.system": "anthropic",
+      "gen_ai.request.model": "claude-opus-4-8",
+      "openclaw.model_call.api": "messages",
+      "openclaw.model_call.transport": "https",
+      "openclaw.model_call.context_token_budget": 200000,
+      "openclaw.model_call.duration_ms": 3412,
+      "openclaw.model_call.ttfb_ms": 486,
+      "openclaw.model_call.response_stream_bytes": 2048,
+      "openclaw.model_call.request_payload_bytes": 18204,
+      "openclaw.model_call.upstream_request_id_hash": "sha256:7d4f9c1e2a",
+      "openclaw.model_call.outcome": "completed"
+    }
+  }
+}

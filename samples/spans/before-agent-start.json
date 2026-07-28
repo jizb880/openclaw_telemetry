@@ -1,0 +1,28 @@
+{
+  "hook": "before_agent_start",
+  "span": "openclaw.action",
+  "conversationHook": false,
+  "notes": "Legacy combined phase; also opens the agent.run gate span for old hosts.",
+  "sampleSpan": {
+    "name": "openclaw.action",
+    "kind": 1,
+    "traceId": "ec4824f3fd0a795df14b39c058a670a9",
+    "spanId": "24e56b1a3372ae9e",
+    "parentSpanId": "2a5ef5a9bfe9a9c8",
+    "status": {
+      "code": 1
+    },
+    "attributes": {
+      "openclaw.session.key": "agent:main:discord:chan-42#samples",
+      "openclaw.agent.id": "main",
+      "openclaw.agent.model": "unknown",
+      "gen_ai.prompt": "帮我查一下上海明天的天气，然后总结成一句话。",
+      "gen_ai.usage.input_tokens": 4912,
+      "gen_ai.usage.output_tokens": 118,
+      "gen_ai.response.model": "claude-opus-4-8",
+      "gen_ai.completion": "\"上海明天多云转晴，气温 24-31°C，适合外出。\"",
+      "openclaw.agent.duration_ms": 5118,
+      "openclaw.agent.success": true
+    }
+  }
+}

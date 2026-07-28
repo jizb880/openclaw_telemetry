@@ -1,0 +1,41 @@
+{
+  "hook": "before_tool_call",
+  "span": "openclaw.tool.web_search",
+  "conversationHook": false,
+  "fieldMapping": [
+    {
+      "requested": "toolName",
+      "hostField": "toolName",
+      "attribute": "openclaw.tool.name"
+    },
+    {
+      "requested": "params",
+      "hostField": "params",
+      "attribute": "openclaw.tool.input"
+    },
+    {
+      "requested": "paramsText",
+      "hostField": "params",
+      "attribute": "openclaw.tool.input",
+      "note": "derived: JSON.stringify(params) (host has no paramsText field)"
+    }
+  ],
+  "sampleSpan": {
+    "name": "openclaw.tool.web_search",
+    "kind": 1,
+    "traceId": "ec4824f3fd0a795df14b39c058a670a9",
+    "spanId": "3ff9c3d1eb0406eb",
+    "parentSpanId": "24e56b1a3372ae9e",
+    "status": {
+      "code": 1
+    },
+    "attributes": {
+      "openclaw.session.key": "agent:main:discord:chan-42#samples",
+      "openclaw.tool.name": "web_search",
+      "openclaw.tool.input": "{\"query\":\"上海 明天 天气\",\"max_results\":3}",
+      "openclaw.tool.duration_ms": 742,
+      "openclaw.tool.output": "{\"content\":[{\"type\":\"text\",\"text\":\"上海：明天多云转晴，24-31°C，东南风 3 级。\"}],\"isError\":false}",
+      "openclaw.tool.result_chars": 81
+    }
+  }
+}

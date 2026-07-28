@@ -1,0 +1,23 @@
+{
+  "hook": "message_received",
+  "span": "openclaw.request",
+  "conversationHook": false,
+  "sampleSpan": {
+    "name": "openclaw.request",
+    "kind": 2,
+    "traceId": "ec4824f3fd0a795df14b39c058a670a9",
+    "spanId": "2a5ef5a9bfe9a9c8",
+    "status": {
+      "code": 1
+    },
+    "attributes": {
+      "openclaw.session.key": "agent:main:discord:chan-42#samples",
+      "openclaw.message.channel": "discord",
+      "openclaw.message.from": "user-777",
+      "openclaw.message.direction": "inbound",
+      "openclaw.hook": "message_received",
+      "openclaw.message.content_length": 22,
+      "openclaw.request.duration_ms": 5
+    }
+  }
+}
