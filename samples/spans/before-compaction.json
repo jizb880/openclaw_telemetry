@@ -8,9 +8,9 @@
   "sampleSpan": {
     "name": "openclaw.compaction.before",
     "kind": 1,
-    "traceId": "0710e8c127cef8eb89766288cb1e6335",
-    "spanId": "848f8e3ab707081a",
-    "parentSpanId": "c7ae2f1d57001175",
+    "traceId": "aed4abcfd22a0a12b0f69b4afbcb1691",
+    "spanId": "d04f0be9e2f31e15",
+    "parentSpanId": "b58c4af1e513c3a1",
     "status": {
       "code": 0
     },

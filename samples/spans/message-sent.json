@@ -5,9 +5,9 @@
   "sampleSpan": {
     "name": "openclaw.message.out",
     "kind": 2,
-    "traceId": "0710e8c127cef8eb89766288cb1e6335",
-    "spanId": "8f50d18c123d7b5c",
-    "parentSpanId": "c7ae2f1d57001175",
+    "traceId": "aed4abcfd22a0a12b0f69b4afbcb1691",
+    "spanId": "17fa90e6b556dcaa",
+    "parentSpanId": "b58c4af1e513c3a1",
     "status": {
       "code": 0
     },

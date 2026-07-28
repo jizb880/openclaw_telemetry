@@ -81,15 +81,69 @@ Place `config/observability.json` in the gateway working directory (see [section
 
 ## 3. Verifying "all hooks capture data on this host version"
 
-Two complementary verification paths, plus a completeness self-check that proves both paths cover every hook.
+Two complementary verification paths, plus a completeness self-check proving both cover every hook. Set up the environment with 3.0, then pick 3.1 (automated, no gateway needed) or 3.2 (real gateway, eyeball confirmation).
+
+### 3.0 Prepare the environment (shared by both paths)
+
+**Prerequisites**
+
+| Requirement | Needed | Verified here |
+|------|------|------|
+| Node.js | >= 18 (`engines` in `package.json`) | **v24.18.0 passing** |
+| npm | ships with Node | 11.16.0 |
+| Runtime dependencies | **none** (`dependencies` is empty; Node built-ins only) | — |
+| `jq` (optional) | only for inspecting spans in 3.2; a node fallback is given | not installed here; fallback used |
+
+Check versions first:
+
+```bash
+node -v      # expect v18 or newer, e.g. v24.18.0
+npm -v
+```
+
+**Install and build**
+
+```bash
+git clone <this-repo> && cd openclaw_telemetry
+npm install          # installs only typescript / @types/node; no runtime deps
+npm run build        # produces dist/index.js (plugin entry)
+```
+
+`npm install` pulls no runtime dependency — the OTLP data plane is the native implementation in `src/otel/` (see [section 9](#9-native-otlp-implementation)).
 
 ### 3.1 End-to-end test (recommended, automated, reproducible)
+
+**This path needs no real gateway and no collector — one command runs everything.**
 
 ```bash
 npm run verify
 ```
 
-Runs typecheck → all tests (**52 cases**: 25 hook E2E + 27 native OTLP) → regenerate samples. The tests:
+It runs three steps in order — typecheck → all tests (**52 cases**: 25 hook E2E + 27 native OTLP) → regenerate samples. Real output ends like:
+
+```text
+> tsc --noEmit -p tsconfig.json                  # (1) typecheck: no output means pass
+> node --test ".test-build/test/**/*.test.js"    # (2) all tests
+...
+ℹ tests 52
+ℹ pass 52
+ℹ fail 0
+> node .test-build/scripts/generate-samples.js   # (3) regenerate samples
+Wrote 17 hook sample spans, full-turn NDJSON (1 lines), and coverage.json to samples/
+```
+
+**How to read the result: `pass 52 / fail 0` plus the final line writing 17 hook samples means every hook captures data on this host version.** Any failing step aborts the chain and `npm run verify` fails.
+
+For tests only, run `npm test`; the tail should read:
+
+```text
+ℹ tests 52
+ℹ suites 10
+ℹ pass 52
+ℹ fail 0
+```
+
+What the tests do:
 
 - **Per-hook assertions**: a built-in mock host constructs events with the **exact field names of the real host**, drives the full plugin chain, reads back the exported NDJSON spans, and checks every required attribute declared in [`coverage.ts`](test/harness/coverage.ts) exists and is non-empty.
 - **Completeness self-check**: the hook set in `coverage.ts` is cross-checked against the authoritative list exported from the real host, [`test/fixtures/host-hook-names.json`](test/fixtures/host-hook-names.json). If the host adds a hook the manifest doesn't cover, the test **fails**. This is the completeness mechanism.
@@ -98,35 +152,97 @@ Runs typecheck → all tests (**52 cases**: 25 hook E2E + 27 native OTLP) → re
 - **Sync contract**: asserts the `tool_result_persist` handler is synchronous (a Promise return is ignored and warned by the host).
 - **Native OTLP implementation** ([`test/otel.test.ts`](test/otel.test.ts), 27 cases): OTLP/JSON compliance (uint64 nanosecond timestamps encoded as strings, int vs double `AnyValue`, root spans omitting `parentSpanId`, status carrying a message only when set), span lifecycle (mutations rejected after `end()`, trace-id inheritance), context propagation across `await`, batching (splitting, queue-cap dropping, flush on shutdown), and OTLP/HTTP payload + content-type verified against **a real HTTP server**.
 
-Expected tail: `tests 52 / pass 52 / fail 0`.
-
-> After a host upgrade, resync the authoritative list: `npm run sync:host-hooks`, then `npm run verify` surfaces any new hook.
+> After a host upgrade, resync the authoritative list: `npm run sync:host-hooks` (re-exports `test/fixtures/host-hook-names.json` from the installed OpenClaw), then `npm run verify` surfaces any new hook.
 
 ### 3.2 Manual test (real gateway, eyeball confirmation)
 
-1. Build and register: `npm run build`, load `dist/index.js` in OpenClaw.
-2. Skip the collector via NDJSON-only mode: set `otlpEnabled=false`, `otelSpanExportEnabled=true`, and a writable `otelSpanExportPath`.
-3. For conversation hooks, enable `allowConversationAccess=true` (section 2).
-4. Run a **full real turn** with at least one tool call; to cover compaction hooks, extend the session until context compaction triggers.
-5. Inspect `openclaw-otel-spans.jsonl`:
+The E2E path uses a mock host to guarantee **logic and field mapping** are complete and reproducible; the manual path confirms on a **real host** that hooks actually fire and authorization actually takes effect. Both consume the same `coverage.json`, so the completeness bar is identical. Six steps:
 
-   ```bash
-   jq '.resourceSpans[].scopeSpans[].spans[].name' openclaw-otel-spans.jsonl | sort -u
-   ```
+**Step 1 · Build the plugin**
 
-6. **Cross-check against the span list in [section 1](#1-hook-coverage-overview).** To confirm manual completeness, list spans that should appear but are missing:
+```bash
+npm run build          # produces dist/index.js
+```
 
-   ```bash
-   comm -13 \
-     <(jq -r '.resourceSpans[].scopeSpans[].spans[].name' openclaw-otel-spans.jsonl | sort -u) \
-     <(jq -r '.hooks[].span' samples/coverage.json | sort -u)
-   ```
+**Step 2 · Write the config (NDJSON-only, no collector needed)**
 
-   Empty output means **your manual test covered every triggerable hook on this host version**. Any output means that hook wasn't triggered (no conversation auth, host too old, or no tool/compaction this turn).
+Put `config/observability.json` in the gateway working directory. For local eyeball verification, turn off OTLP HTTP and write NDJSON only:
 
-   > Note: tool spans are dynamic `openclaw.tool.<name>`; `coverage.json` uses `openclaw.tool.web_search` as a representative. If your actual tool name differs it may false-positive as "missing" — as long as **any** `openclaw.tool.*` (plus `openclaw.tool.result_persist`) is present, the tool path is covered.
+```jsonc
+{
+  "enabled": true,
+  "otlpEnabled": false,                    // skip OTLP HTTP export; no collector required
+  "otelSpanExportEnabled": true,           // write spans to a local NDJSON file
+  "otelSpanExportPath": "./telemetry-out"   // writable dir; default file openclaw-otel-spans.jsonl
+}
+```
 
-> Relationship: the E2E path uses a mock host to guarantee **logic and field mapping** are complete and reproducible; the manual path confirms on a **real host** that hooks actually fire and authorization actually takes effect. Both consume the same `coverage.json`, so the completeness bar is identical.
+Omitted keys fall back to defaults (all `capture*` flags default to on). Full field list in [section 4](#4-configuration).
+
+**Step 3 · Grant conversation access (required for `llm_input` / `llm_output` / `before_agent_run`)**
+
+Grant the plugin permission in the OpenClaw main config, or the host blocks these conversation hooks outright:
+
+```jsonc
+{
+  "plugins": {
+    "entries": {
+      "openclaw-otel-observability": { "hooks": { "allowConversationAccess": true } }
+    }
+  }
+}
+```
+
+**Step 4 · Load the plugin and run one full real turn**
+
+Load `dist/index.js` in OpenClaw, then complete **one full real turn** that triggers **at least one tool call**. To cover the compaction hooks, extend the session until context compaction fires.
+
+**Step 5 · Inspect the exported spans**
+
+The output file is `./telemetry-out/openclaw-otel-spans.jsonl` (standard OTLP/JSON, one `ExportTraceServiceRequest` per line). List the span names seen:
+
+```bash
+# with jq:
+jq -r '.resourceSpans[].scopeSpans[].spans[].name' telemetry-out/openclaw-otel-spans.jsonl | sort -u
+
+# without jq (pure node fallback):
+node -e 'const fs=require("fs");const names=fs.readFileSync("telemetry-out/openclaw-otel-spans.jsonl","utf8").trim().split("\n").flatMap(l=>{const o=JSON.parse(l);return o.resourceSpans.flatMap(r=>r.scopeSpans.flatMap(s=>s.spans.map(x=>x.name)))});[...new Set(names)].sort().forEach(n=>console.log(n))'
+```
+
+One complete turn should show the same 15 spans as the samples (tool span names vary with the tool you actually call):
+
+```text
+openclaw.session.start        openclaw.llm.input            openclaw.tool.web_search
+openclaw.request             openclaw.model_call           openclaw.tool.exec
+openclaw.action              openclaw.llm.output           openclaw.tool.result_persist
+openclaw.agent.run           openclaw.compaction.before    openclaw.message.sending
+openclaw.session.end         openclaw.compaction.after     openclaw.message.out
+```
+
+**Step 6 · Completeness check**
+
+Cross-check against [section 1](#1-hook-coverage-overview), or list spans that should have appeared but did not:
+
+```bash
+# with jq:
+comm -13 \
+  <(jq -r '.resourceSpans[].scopeSpans[].spans[].name' telemetry-out/openclaw-otel-spans.jsonl | sort -u) \
+  <(jq -r '.hooks[].span' samples/coverage.json | sort -u)
+
+# without jq (pure node fallback):
+node -e 'const fs=require("fs");const got=new Set(fs.readFileSync("telemetry-out/openclaw-otel-spans.jsonl","utf8").trim().split("\n").flatMap(l=>{const o=JSON.parse(l);return o.resourceSpans.flatMap(r=>r.scopeSpans.flatMap(s=>s.spans.map(x=>x.name)))}));const want=[...new Set(JSON.parse(fs.readFileSync("samples/coverage.json","utf8")).hooks.map(h=>h.span))];const miss=want.filter(n=>!got.has(n));console.log(miss.length?"MISSING: "+miss.join(", "):"ALL COVERED OK")'
+```
+
+**How to read the result: empty output (or `ALL COVERED OK`) means your manual test covered every triggerable hook on this host version.** Any output means that hook did not fire — common causes:
+
+| Missing span | Usual cause | Fix |
+|------|------|------|
+| `openclaw.llm.input` / `openclaw.llm.output` / `openclaw.agent.run` | conversation access not granted | do step 3 |
+| `openclaw.tool.*` / `openclaw.tool.result_persist` | no tool call this turn; `tool_result_persist` also needs host >= 2026.7 | make the turn call a tool |
+| `openclaw.compaction.*` | session never reached context compaction | keep the session going |
+| all missing / no file | plugin not loaded, `enabled=false`, or output dir not writable | check the `[otel]` lines in the gateway log |
+
+> Tool spans are dynamic `openclaw.tool.<name>`; `coverage.json` uses `openclaw.tool.web_search` as a representative. If your tool name differs it will be reported as "missing" — as long as **any** `openclaw.tool.*` is present, the tool path is covered.
 
 ---
 
