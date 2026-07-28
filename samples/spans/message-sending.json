@@ -17,9 +17,9 @@
   "sampleSpan": {
     "name": "openclaw.message.sending",
     "kind": 2,
-    "traceId": "ec4824f3fd0a795df14b39c058a670a9",
-    "spanId": "c94dd4e757d6f622",
-    "parentSpanId": "24e56b1a3372ae9e",
+    "traceId": "0710e8c127cef8eb89766288cb1e6335",
+    "spanId": "5428f35518858779",
+    "parentSpanId": "c7ae2f1d57001175",
     "status": {
       "code": 0
     },

@@ -29,9 +29,9 @@
   "sampleSpan": {
     "name": "openclaw.llm.input",
     "kind": 1,
-    "traceId": "ec4824f3fd0a795df14b39c058a670a9",
-    "spanId": "2c7005e8240b755b",
-    "parentSpanId": "24e56b1a3372ae9e",
+    "traceId": "0710e8c127cef8eb89766288cb1e6335",
+    "spanId": "e165f863b073a864",
+    "parentSpanId": "c7ae2f1d57001175",
     "status": {
       "code": 0
     },

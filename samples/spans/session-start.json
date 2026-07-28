@@ -5,8 +5,8 @@
   "sampleSpan": {
     "name": "openclaw.session.start",
     "kind": 1,
-    "traceId": "a027c37a8c7b29ae8f61d94671cbeee5",
-    "spanId": "e6453c64fb6557e3",
+    "traceId": "965c0e159c5830d364cc906f4f0c18e2",
+    "spanId": "ced68eff7b1ee815",
     "status": {
       "code": 0
     },

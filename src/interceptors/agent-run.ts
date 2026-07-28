@@ -1,4 +1,4 @@
-import { SpanKind, type Span } from "@opentelemetry/api";
+import { SpanKind, type Span } from "../otel/index.js";
 import type { ObservabilityConfig } from "../config/observability.js";
 import type { GlobalTracer } from "../tracer.js";
 import { textAttr } from "../util/attributes.js";

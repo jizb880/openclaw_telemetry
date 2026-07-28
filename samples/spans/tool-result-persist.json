@@ -20,9 +20,9 @@
   "sampleSpan": {
     "name": "openclaw.tool.result_persist",
     "kind": 1,
-    "traceId": "ec4824f3fd0a795df14b39c058a670a9",
-    "spanId": "bb89e0dea0d869e0",
-    "parentSpanId": "24e56b1a3372ae9e",
+    "traceId": "0710e8c127cef8eb89766288cb1e6335",
+    "spanId": "90a8cf9bd0fa36a4",
+    "parentSpanId": "c7ae2f1d57001175",
     "status": {
       "code": 0
     },

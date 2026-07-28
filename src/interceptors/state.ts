@@ -1,5 +1,4 @@
-import type { Context } from "@opentelemetry/api";
-import type { Span } from "@opentelemetry/api";
+import type { Context, Span } from "../otel/index.js";
 
 export interface SessionTraceState {
   rootSpan: Span;

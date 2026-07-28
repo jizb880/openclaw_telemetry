@@ -28,9 +28,9 @@
   "sampleSpan": {
     "name": "openclaw.agent.run",
     "kind": 1,
-    "traceId": "ec4824f3fd0a795df14b39c058a670a9",
-    "spanId": "7de576d4a592e5d6",
-    "parentSpanId": "24e56b1a3372ae9e",
+    "traceId": "0710e8c127cef8eb89766288cb1e6335",
+    "spanId": "a41251983c6ddba6",
+    "parentSpanId": "c7ae2f1d57001175",
     "status": {
       "code": 0
     },

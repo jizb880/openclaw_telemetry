@@ -1,7 +1,7 @@
 {
   "name": "openclaw-otel-observability",
   "version": "0.1.0",
-  "description": "OpenTelemetry tracing for OpenClaw (Action, Tool, LLM) with configurable capture flags",
+  "description": "Native OTLP tracing for OpenClaw (Action, Tool, LLM) with configurable capture flags — zero runtime dependencies",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -27,6 +27,7 @@
   "keywords": [
     "openclaw",
     "opentelemetry",
+    "otlp",
     "tracing",
     "llm",
     "observability"
@@ -34,16 +35,6 @@
   "license": "Apache-2.0",
   "engines": {
     "node": ">=18"
-  },
-  "dependencies": {
-    "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/context-async-hooks": "^2.0.1",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.203.0",
-    "@opentelemetry/otlp-transformer": "^0.203.0",
-    "@opentelemetry/resources": "^2.0.1",
-    "@opentelemetry/sdk-trace-base": "^2.0.1",
-    "@opentelemetry/sdk-trace-node": "^2.0.1",
-    "@opentelemetry/semantic-conventions": "^1.30.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

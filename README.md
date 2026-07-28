@@ -1,6 +1,8 @@
 # openclaw_telemetry
 
-面向 [OpenClaw](https://github.com/openclaw) 网关与智能体的 OpenTelemetry 追踪插件。它把 OpenClaw 插件生命周期中的**全部关键 hook 点**记录为相互关联的 Span：会话开始/结束、输入门禁、LLM 上下文与输出、Provider 调用（TTFB/流式字节等脱敏指标）、工具前置/后置/持久化、消息进出、以及上下文压缩。Span 通过 **OTLP/HTTP** 导出，同时可选**追加写入本地 NDJSON 文件**（标准 OTLP/JSON 编码）以便离线查看。
+面向 [OpenClaw](https://github.com/openclaw) 网关与智能体的 OTLP 追踪插件。它把 OpenClaw 插件生命周期中的**全部关键 hook 点**记录为相互关联的 Span：会话开始/结束、输入门禁、LLM 上下文与输出、Provider 调用（TTFB/流式字节等脱敏指标）、工具前置/后置/持久化、消息进出、以及上下文压缩。Span 通过 **OTLP/HTTP** 导出，同时可选**追加写入本地 NDJSON 文件**（标准 OTLP/JSON 编码）以便离线查看。
+
+> **零运行时依赖。** OTLP 数据面（Span、上下文传播、批处理、OTLP/JSON 序列化、HTTP/文件导出）全部由本仓库[原生实现](src/otel/)，**不依赖任何 `@opentelemetry/*` 三方件**，仅需 Node.js ≥ 18 内置能力。输出与官方 SDK **逐字节兼容**（见[第九节](#九原生-otlp-实现)）。
 
 > 语言：**中文（本文档）** · [English](README.en.md)
 
@@ -87,15 +89,16 @@ npm run build      # 产出 dist/index.js（插件入口）
 npm run verify
 ```
 
-这一条命令依次执行：类型检查 → 端到端测试（25 个用例）→ 重新生成样例。测试做了什么：
+这一条命令依次执行：类型检查 → 全部测试（**52 个用例**：25 个 hook 端到端 + 27 个原生 OTLP 实现）→ 重新生成样例。测试做了什么：
 
 - **逐 hook 断言**：通过内置 Mock 宿主，用与真实宿主**完全一致的字段名**构造事件，驱动整条插件链路，再把导出的 NDJSON Span 读回，逐条校验 [`coverage.ts`](test/harness/coverage.ts) 里声明的每个必备属性都存在且非空。
 - **完备性自检**：把 `coverage.ts` 声明的 hook 集合与**从真实宿主导出的权威列表** [`test/fixtures/host-hook-names.json`](test/fixtures/host-hook-names.json) 交叉比对——若宿主新增了某个 hook 而清单未覆盖，测试**失败**。这正是“验证完备性”的机制。
 - **向后兼容**：模拟旧宿主（无 `before_agent_run`、用 `*_context_prune` 旧别名），断言不抛错且仍能采到数据；同时断言新宿主下**不会重复计数**。
 - **授权门禁**：断言未开 `allowConversationAccess` 时会话类 hook 被拦截、非会话类不受影响。
 - **同步契约**：断言 `tool_result_persist` 处理器为同步（返回 Promise 会被宿主忽略并告警）。
+- **原生 OTLP 实现**（[`test/otel.test.ts`](test/otel.test.ts)，27 用例）：OTLP/JSON 编码合规性（uint64 纳秒时间戳编码为字符串、int/double 的 `AnyValue` 区分、根 Span 不带 `parentSpanId`、status 仅在有 message 时携带）、Span 生命周期（`end()` 后拒绝改写、trace id 继承）、上下文跨 `await` 传播、批处理（分批、队列上限丢弃、shutdown 落盘）、以及**用真实 HTTP 服务器**校验 OTLP/HTTP 上报载荷与 content-type。
 
-期望输出结尾：`tests 25 / pass 25 / fail 0`。
+期望输出结尾：`tests 52 / pass 52 / fail 0`。
 
 > 宿主升级后同步权威列表：`npm run sync:host-hooks`（从本机安装的 OpenClaw 重新导出 `test/fixtures/host-hook-names.json`），随后 `npm run verify` 即可发现新增 hook。
 
@@ -218,11 +221,24 @@ import {
 
 const config = loadObservabilityConfig();
 const tracer = GlobalTracer.getInstance();
-tracer.init(config, resolveOtelSpanExportFilePath);
+tracer.init(config, resolveOtelSpanExportFilePath, {
+  onError: (err) => console.warn("[otel] export failed:", err),
+});
 registerInterceptors(openClawApi, tracer, config);
 ```
 
-插件会注册一个后台 service，在停止时关闭 TracerProvider 并刷新 OTLP 与文件导出批次。`GlobalTracer` 另提供 `forceFlush()` 用于主动落盘。
+插件会注册一个后台 service，在停止时关闭 TracerProvider 并刷新 OTLP 与文件导出批次。`GlobalTracer` 另提供 `forceFlush()` 用于主动落盘。第三个参数 `onError` 用于接收导出失败（网络不可达、磁盘写入失败等）——**导出失败只上报、不抛出**，遥测故障绝不影响宿主主流程。
+
+原生 OTLP 构件也一并对外导出，可单独使用（例如自建导出管道）：
+
+```typescript
+import {
+  BatchSpanProcessor,
+  OtlpJsonFileSpanExporter,
+  TracerProvider,
+  serializeSpansToOtlpJson,
+} from "openclaw-otel-observability";
+```
 
 ---
 
@@ -232,15 +248,39 @@ registerInterceptors(openClawApi, tracer, config);
 |------|------|
 | `npm run build` | 编译插件到 `dist/`。 |
 | `npm run typecheck` | 仅类型检查。 |
-| `npm test` | 编译并运行端到端测试（25 用例）。 |
+| `npm test` | 编译并运行全部测试（52 用例）。 |
 | `npm run samples` | 重新生成 `samples/` 下的采集样例。 |
 | `npm run verify` | **typecheck + test + samples**，一条命令完成全部验证。 |
 | `npm run sync:host-hooks` | 从本机安装的 OpenClaw 重新导出权威 hook 列表。 |
 | `npm run clean` | 清理 `dist/` 与 `.test-build/`。 |
 
+---
+
+## 九、原生 OTLP 实现
+
+本插件**不依赖任何 `@opentelemetry/*` 三方件**（`dependencies` 为空，仅保留 `typescript`/`@types/node` 作为开发依赖）。整个 OTLP 数据面在 [`src/otel/`](src/otel/) 下原生实现，只使用 Node.js ≥ 18 内置能力（`node:crypto` 生成 ID、`node:async_hooks` 传播上下文、全局 `fetch` 上报）。
+
+| 文件 | 职责 | 替代原三方件 |
+|------|------|------|
+| [`primitives.ts`](src/otel/primitives.ts) | `SpanKind`/`SpanStatusCode` 枚举（数值与 proto 一致）、trace/span ID 生成、纳秒时间戳换算 | `@opentelemetry/api` |
+| [`context.ts`](src/otel/context.ts) | `context.active()` / `context.with()` / `trace.setSpan()`，基于 `AsyncLocalStorage` 的不可变上下文 | `@opentelemetry/api`、`context-async-hooks` |
+| [`span.ts`](src/otel/span.ts) | Span 实现（属性、状态、事件、异常、`end()` 后冻结）与 `ReadableSpan` | `sdk-trace-base` |
+| [`otlp-json.ts`](src/otel/otlp-json.ts) | 构造标准 `ExportTraceServiceRequest`，含 `AnyValue` 类型映射 | `otlp-transformer` |
+| [`exporters.ts`](src/otel/exporters.ts) | NDJSON 文件导出器 + OTLP/HTTP 导出器（`fetch` + 超时中断） | `exporter-trace-otlp-http` |
+| [`batch-processor.ts`](src/otel/batch-processor.ts) | 批量缓冲、定时刷新（timer `unref`）、队列上限、串行导出 | `sdk-trace-base` |
+| [`provider.ts`](src/otel/provider.ts) | 持有处理器、签发 tracer、`forceFlush` / `shutdown` | `sdk-trace-node` |
+
+**为什么输出仍然通用**：序列化严格遵循 OTLP/JSON 映射——uint64 的 `startTimeUnixNano`/`endTimeUnixNano` 编码为**字符串**，整数用 `intValue`、非整数用 `doubleValue`，根 Span 省略 `parentSpanId`，并保留 `droppedAttributesCount` / `events` / `links` 等字段。因此产物可直接被 Jaeger、Grafana、OTel Collector（含 `otlpjsonfile` receiver）等标准工具消费。
+
+**兼容性如何验证**：重构前用官方 SDK 生成的样例被保留为基线，重构后重新生成并做**结构化比对**（归一化随机 ID 与时间戳后逐行 diff），结果除一处 wall-clock 耗时读数（`openclaw.request.duration_ms`，本身每次运行都会变）外**完全一致**。另有 27 个针对性用例校验编码合规与 HTTP 上报。
+
+**设计取舍**：provider **不做全局注册**（不调用 OTel 的 `register()`），因此即便宿主自身装了 OTel SDK 也不会互相覆盖；本插件只导出自己创建的 Span。若你需要与宿主共享 trace 上下文，可通过 `registerInterceptors` 传入自定义 tracer。
+
+---
+
 ## 环境要求
 
-- Node.js ≥ 18
+- Node.js ≥ 18（需要内置 `fetch`；无其它运行时依赖）
 - OTLP 上报：需可接收 OTLP/HTTP 的 Collector 或后端（设 `otlpEnabled=false` 可免）
 - 文件导出：路径可写，目录不存在时自动创建
 

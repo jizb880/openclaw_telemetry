@@ -1,23 +1,36 @@
-import { context, trace, type Context, type Span, type SpanOptions, type Tracer } from "@opentelemetry/api";
-import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { resourceFromAttributes } from "@opentelemetry/resources";
-import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
 import { resolveOtelSpanExportFilePath, type ObservabilityConfig } from "./config/observability.js";
-import { JsonlFileSpanExporter } from "./exporters/jsonl-file-span-exporter.js";
+import {
+  BatchSpanProcessor,
+  OtlpHttpSpanExporter,
+  OtlpJsonFileSpanExporter,
+  TracerProvider,
+  context,
+  type Attributes,
+  type Context,
+  type Span,
+  type SpanOptions,
+  type Tracer,
+} from "./otel/index.js";
 
 const INSTRUMENTATION_NAME = "openclaw-otel-observability";
 const INSTRUMENTATION_VERSION = "0.1.0";
 
+export type TracerInitOptions = {
+  /** Where export failures are reported. Defaults to silent. */
+  onError?: (err: unknown) => void;
+};
+
 /**
- * Global singleton around `trace.getTracer()` and the Node tracer provider lifecycle.
- * Spans use the active async context for automatic propagation.
+ * Global singleton owning the tracer provider lifecycle.
+ *
+ * Backed by this package's native OpenTelemetry implementation (`src/otel`), so
+ * there is no third-party OTel runtime dependency and no global SDK
+ * registration that could clash with the host.
  */
 export class GlobalTracer {
   private static instance: GlobalTracer | undefined;
 
-  private provider: NodeTracerProvider | null = null;
+  private provider: TracerProvider | null = null;
   private apiTracer: Tracer | null = null;
 
   private constructor() {}
@@ -29,36 +42,35 @@ export class GlobalTracer {
 
   init(
     config: ObservabilityConfig,
-    resolveExportPath: (cfg: ObservabilityConfig) => string | null = resolveOtelSpanExportFilePath
+    resolveExportPath: (cfg: ObservabilityConfig) => string | null = resolveOtelSpanExportFilePath,
+    options: TracerInitOptions = {}
   ): void {
     if (!config.enabled) return;
     if (this.provider) return;
 
-    const resource = resourceFromAttributes({
-      [ATTR_SERVICE_NAME]: config.serviceName,
-    });
+    const resource: { attributes: Attributes } = {
+      attributes: { "service.name": config.serviceName },
+    };
+    const scope = { name: INSTRUMENTATION_NAME, version: INSTRUMENTATION_VERSION };
+    const onError = options.onError ?? ((): void => {});
 
-    const spanProcessors = [];
+    const spanProcessors: BatchSpanProcessor[] = [];
 
     if (config.otlpEnabled) {
-      const otlpExporter = new OTLPTraceExporter({
-        url: config.otlpEndpoint,
-      });
-      spanProcessors.push(new BatchSpanProcessor(otlpExporter));
+      spanProcessors.push(
+        new BatchSpanProcessor(new OtlpHttpSpanExporter(config.otlpEndpoint, resource, scope), { onError })
+      );
     }
 
     const filePath = resolveExportPath(config);
     if (filePath) {
-      spanProcessors.push(new BatchSpanProcessor(new JsonlFileSpanExporter(filePath)));
+      spanProcessors.push(
+        new BatchSpanProcessor(new OtlpJsonFileSpanExporter(filePath, resource, scope), { onError })
+      );
     }
 
-    this.provider = new NodeTracerProvider({
-      resource,
-      spanProcessors,
-    });
-
-    this.provider.register();
-    this.apiTracer = trace.getTracer(INSTRUMENTATION_NAME, INSTRUMENTATION_VERSION);
+    this.provider = new TracerProvider({ resource, scope, spanProcessors });
+    this.apiTracer = this.provider.getTracer();
   }
 
   isInitialized(): boolean {

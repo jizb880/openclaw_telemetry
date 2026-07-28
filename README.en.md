@@ -1,6 +1,8 @@
 # openclaw_telemetry
 
-OpenTelemetry tracing for [OpenClaw](https://github.com/openclaw) gateways and agents. It records **every key hook** across the OpenClaw plugin lifecycle as connected spans: session start/end, the input gate, LLM context and output, provider calls (sanitized TTFB / streamed-byte telemetry), tool before/after/persist, inbound/outbound messages, and context compaction. Spans are exported over **OTLP/HTTP** and can optionally be appended to a local **NDJSON file** (standard OTLP/JSON) for offline inspection.
+Native OTLP tracing for [OpenClaw](https://github.com/openclaw) gateways and agents. It records **every key hook** across the OpenClaw plugin lifecycle as connected spans: session start/end, the input gate, LLM context and output, provider calls (sanitized TTFB / streamed-byte telemetry), tool before/after/persist, inbound/outbound messages, and context compaction. Spans are exported over **OTLP/HTTP** and can optionally be appended to a local **NDJSON file** (standard OTLP/JSON) for offline inspection.
+
+> **Zero runtime dependencies.** The entire OTLP data plane (spans, context propagation, batching, OTLP/JSON serialization, HTTP/file export) is [implemented natively](src/otel/) in this repo with **no `@opentelemetry/*` packages** — only Node.js ≥ 18 built-ins. Output is **byte-compatible** with the official SDK (see [section 9](#9-native-otlp-implementation)).
 
 > Language: [中文](README.md) · **English (this document)**
 
@@ -87,15 +89,16 @@ Two complementary verification paths, plus a completeness self-check that proves
 npm run verify
 ```
 
-Runs typecheck → E2E tests (25 cases) → regenerate samples. The tests:
+Runs typecheck → all tests (**52 cases**: 25 hook E2E + 27 native OTLP) → regenerate samples. The tests:
 
 - **Per-hook assertions**: a built-in mock host constructs events with the **exact field names of the real host**, drives the full plugin chain, reads back the exported NDJSON spans, and checks every required attribute declared in [`coverage.ts`](test/harness/coverage.ts) exists and is non-empty.
 - **Completeness self-check**: the hook set in `coverage.ts` is cross-checked against the authoritative list exported from the real host, [`test/fixtures/host-hook-names.json`](test/fixtures/host-hook-names.json). If the host adds a hook the manifest doesn't cover, the test **fails**. This is the completeness mechanism.
 - **Backward compatibility**: simulates a legacy host (no `before_agent_run`, `*_context_prune` aliases), asserts no throw and data still captured, and asserts no double-counting on a modern host.
 - **Authorization gate**: asserts conversation hooks are blocked without `allowConversationAccess` and non-conversation hooks are unaffected.
 - **Sync contract**: asserts the `tool_result_persist` handler is synchronous (a Promise return is ignored and warned by the host).
+- **Native OTLP implementation** ([`test/otel.test.ts`](test/otel.test.ts), 27 cases): OTLP/JSON compliance (uint64 nanosecond timestamps encoded as strings, int vs double `AnyValue`, root spans omitting `parentSpanId`, status carrying a message only when set), span lifecycle (mutations rejected after `end()`, trace-id inheritance), context propagation across `await`, batching (splitting, queue-cap dropping, flush on shutdown), and OTLP/HTTP payload + content-type verified against **a real HTTP server**.
 
-Expected tail: `tests 25 / pass 25 / fail 0`.
+Expected tail: `tests 52 / pass 52 / fail 0`.
 
 > After a host upgrade, resync the authoritative list: `npm run sync:host-hooks`, then `npm run verify` surfaces any new hook.
 
@@ -196,11 +199,24 @@ import {
 
 const config = loadObservabilityConfig();
 const tracer = GlobalTracer.getInstance();
-tracer.init(config, resolveOtelSpanExportFilePath);
+tracer.init(config, resolveOtelSpanExportFilePath, {
+  onError: (err) => console.warn("[otel] export failed:", err),
+});
 registerInterceptors(openClawApi, tracer, config);
 ```
 
-The plugin registers a background service that shuts down the TracerProvider on stop (flushing OTLP and file batches). `GlobalTracer` also exposes `forceFlush()`.
+The plugin registers a background service that shuts down the TracerProvider on stop (flushing OTLP and file batches). `GlobalTracer` also exposes `forceFlush()`. The third `onError` argument receives export failures (unreachable network, disk write errors) — **failures are reported, never thrown**, so telemetry problems cannot break the host.
+
+The native OTLP building blocks are exported too, for standalone use (e.g. your own export pipeline):
+
+```typescript
+import {
+  BatchSpanProcessor,
+  OtlpJsonFileSpanExporter,
+  TracerProvider,
+  serializeSpansToOtlpJson,
+} from "openclaw-otel-observability";
+```
 
 ---
 
@@ -210,15 +226,39 @@ The plugin registers a background service that shuts down the TracerProvider on 
 |------|------|
 | `npm run build` | Compile the plugin to `dist/`. |
 | `npm run typecheck` | Type-check only. |
-| `npm test` | Compile and run the E2E suite (25 cases). |
+| `npm test` | Compile and run all tests (52 cases). |
 | `npm run samples` | Regenerate the samples under `samples/`. |
 | `npm run verify` | **typecheck + test + samples** in one command. |
 | `npm run sync:host-hooks` | Re-export the authoritative hook list from the installed host. |
 | `npm run clean` | Remove `dist/` and `.test-build/`. |
 
+---
+
+## 9. Native OTLP implementation
+
+This plugin has **no `@opentelemetry/*` dependencies** (`dependencies` is empty; only `typescript` / `@types/node` remain as dev dependencies). The whole OTLP data plane lives in [`src/otel/`](src/otel/) and uses only Node.js ≥ 18 built-ins (`node:crypto` for IDs, `node:async_hooks` for context, global `fetch` for export).
+
+| File | Responsibility | Replaces |
+|------|------|------|
+| [`primitives.ts`](src/otel/primitives.ts) | `SpanKind`/`SpanStatusCode` enums (proto-matching values), trace/span ID generation, nanosecond time math | `@opentelemetry/api` |
+| [`context.ts`](src/otel/context.ts) | `context.active()` / `context.with()` / `trace.setSpan()`, immutable contexts over `AsyncLocalStorage` | `@opentelemetry/api`, `context-async-hooks` |
+| [`span.ts`](src/otel/span.ts) | Span implementation (attributes, status, events, exceptions, frozen after `end()`) and `ReadableSpan` | `sdk-trace-base` |
+| [`otlp-json.ts`](src/otel/otlp-json.ts) | Builds a standard `ExportTraceServiceRequest`, including `AnyValue` typing | `otlp-transformer` |
+| [`exporters.ts`](src/otel/exporters.ts) | NDJSON file exporter + OTLP/HTTP exporter (`fetch` with timeout abort) | `exporter-trace-otlp-http` |
+| [`batch-processor.ts`](src/otel/batch-processor.ts) | Batch buffering, scheduled flush (`unref`'d timer), queue cap, serialized export | `sdk-trace-base` |
+| [`provider.ts`](src/otel/provider.ts) | Owns processors, issues tracers, `forceFlush` / `shutdown` | `sdk-trace-node` |
+
+**Why the output stays portable**: serialization follows the OTLP/JSON mapping strictly — uint64 `startTimeUnixNano`/`endTimeUnixNano` are encoded as **strings**, integers use `intValue` and non-integers `doubleValue`, root spans omit `parentSpanId`, and `droppedAttributesCount` / `events` / `links` are preserved. The result is consumable by Jaeger, Grafana, and the OTel Collector (including the `otlpjsonfile` receiver).
+
+**How compatibility was verified**: the samples generated by the official SDK before the refactor were kept as a baseline, then regenerated afterwards and compared **structurally** (line-diffed after normalizing random IDs and timestamps). The only difference was a single wall-clock reading (`openclaw.request.duration_ms`, which varies every run). 27 targeted cases additionally assert encoding compliance and HTTP export.
+
+**Design note**: the provider is **not registered globally** (no OTel `register()` call), so it cannot clash with a host-installed OTel SDK; this plugin only exports spans it created itself. To share trace context with the host, pass your own tracer to `registerInterceptors`.
+
+---
+
 ## Requirements
 
-- Node.js ≥ 18
+- Node.js ≥ 18 (needs built-in `fetch`; no other runtime dependencies)
 - OTLP export: an OTLP/HTTP collector or backend (set `otlpEnabled=false` to skip)
 - File export: a writable path; the directory is created if missing
 

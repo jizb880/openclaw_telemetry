@@ -5,7 +5,7 @@ import { GlobalTracer } from "./tracer.js";
 const plugin = {
   id: "openclaw-otel-observability",
   name: "OpenTelemetry Observability",
-  description: "OpenClaw Action, Tool, and LLM tracing via OpenTelemetry (OTLP)",
+  description: "OpenClaw Action, Tool, and LLM tracing via native OTLP export",
   register(api: OpenClawPluginApi) {
     const config = loadObservabilityConfig();
     const logger = api.logger;
@@ -21,7 +21,9 @@ const plugin = {
     }
 
     const tracer = GlobalTracer.getInstance();
-    tracer.init(config, resolveOtelSpanExportFilePath);
+    tracer.init(config, resolveOtelSpanExportFilePath, {
+      onError: (err) => logger?.warn?.(`[otel] Span export failed: ${String(err)}`),
+    });
 
     registerInterceptors(api, tracer, config);
 
@@ -44,7 +46,30 @@ const plugin = {
 
 export default plugin;
 
-export { GlobalTracer } from "./tracer.js";
+export { GlobalTracer, type TracerInitOptions } from "./tracer.js";
+
+// Native OTLP implementation (no third-party OpenTelemetry runtime dependency).
+export {
+  BatchSpanProcessor,
+  OtlpHttpSpanExporter,
+  OtlpJsonFileSpanExporter,
+  ROOT_CONTEXT,
+  SpanKind,
+  SpanStatusCode,
+  TracerProvider,
+  buildExportTraceServiceRequest,
+  context,
+  serializeSpansToOtlpJson,
+  trace,
+  type Attributes,
+  type Context,
+  type ReadableSpan,
+  type Span,
+  type SpanExporter,
+  type SpanOptions,
+  type Tracer,
+} from "./otel/index.js";
+
 export {
   loadObservabilityConfig,
   parseObservabilityConfig,

@@ -2,12 +2,16 @@
 
 ## 项目概述
 
-OpenClaw Telemetry 是一个基于 OpenTelemetry 的追踪插件，为 OpenClaw 网关/Agent 提供可观测性能力。它通过拦截器（Interceptor）记录 Agent 动作、消息收发、工具调用和 LLM 交互，生成分布式追踪 Span，支持导出到 OTLP/HTTP 端点和本地 NDJSON 文件。
+OpenClaw Telemetry 是一个 OTLP 追踪插件，为 OpenClaw 网关/Agent 提供可观测性能力。它通过拦截器（Interceptor）记录会话生命周期、输入门禁、LLM 上下文与输出、Provider 调用、工具调用、消息收发和上下文压缩，生成分布式追踪 Span，支持导出到 OTLP/HTTP 端点和本地 NDJSON 文件。
 
-**核心依赖：**
-- `@opentelemetry/api` / `@opentelemetry/sdk-trace-node` — OpenTelemetry 追踪 API 与 SDK
-- `@opentelemetry/exporter-trace-otlp-http` — OTLP HTTP 导出器
-- `@opentelemetry/resources` / `@opentelemetry/semantic-conventions` — 资源定义与语义约定
+**零运行时依赖：** OTLP 数据面全部由 `src/otel/` 原生实现，**不依赖任何 `@opentelemetry/*` 三方件**。
+
+- `node:crypto`（`randomFillSync`）— 生成 trace/span ID
+- `node:async_hooks`（`AsyncLocalStorage`）— 上下文传播
+- 全局 `fetch`（Node ≥ 18）— OTLP/HTTP 上报
+- `node:fs`— NDJSON 文件追加写入
+
+开发依赖仅 `typescript` 与 `@types/node`。输出严格遵循 OTLP/JSON 映射，与官方 SDK 产物逐字节兼容。
 
 ---
 
@@ -27,8 +31,15 @@ openclaw_telemetry/
 ├── src/
 │   ├── config/
 │   │   └── observability.ts          # 配置加载与解析
-│   ├── exporters/
-│   │   └── jsonl-file-span-exporter.ts  # NDJSON 文件导出器
+│   ├── otel/                         # 原生 OTLP 实现（替代 @opentelemetry/*）
+│   │   ├── index.ts                  # 统一出口（对齐原 @opentelemetry/api 接口）
+│   │   ├── primitives.ts             # 枚举、ID 生成、纳秒时间戳
+│   │   ├── context.ts                # AsyncLocalStorage 上下文传播
+│   │   ├── span.ts                   # Span 实现与 ReadableSpan
+│   │   ├── otlp-json.ts              # OTLP/JSON 序列化
+│   │   ├── exporters.ts              # NDJSON 文件 + OTLP/HTTP 导出器
+│   │   ├── batch-processor.ts        # 批量缓冲与定时刷新
+│   │   └── provider.ts               # TracerProvider
 │   ├── interceptors/
 │   │   ├── index.ts                  # 拦截器注册入口
 │   │   ├── action.ts                 # Agent 轮次（before_agent_start / agent_end）
@@ -45,7 +56,8 @@ openclaw_telemetry/
 │   ├── index.ts                      # 插件入口
 │   └── tracer.ts                     # 全局 Tracer 单例
 ├── test/
-│   ├── e2e.test.ts                   # 端到端测试（25 用例）
+│   ├── e2e.test.ts                   # hook 端到端测试（25 用例）
+│   ├── otel.test.ts                  # 原生 OTLP 实现测试（27 用例）
 │   ├── fixtures/host-hook-names.json # 从宿主导出的权威 hook 名单
 │   └── harness/
 │       ├── coverage.ts               # hook 覆盖清单（唯一事实源）
@@ -91,7 +103,7 @@ openclaw_telemetry/
 | 文件 | 说明 |
 |------|------|
 | `index.ts` | **插件入口**。定义 OpenClaw 插件对象，加载配置，检查注册模式和启用状态，初始化 `GlobalTracer`，注册所有拦截器，并注册服务用于优雅关闭。对外导出 `GlobalTracer`、配置工具函数和拦截器注册函数。 |
-| `tracer.ts` | **全局 Tracer 单例管理器**。封装 OpenTelemetry 的 `NodeTracerProvider`，使用 `BatchSpanProcessor` 管理 OTLP 导出器（可由 `otlpEnabled=false` 完全跳过）和可选的 NDJSON 文件导出器。提供 `startSpan()`、`withContext()`、`withContextAsync()` 实现异步安全的 Span 创建，`forceFlush()` 主动落盘，以及 `shutdown()` 优雅清理。 |
+| `tracer.ts` | **全局 Tracer 单例管理器**。基于 `src/otel/` 的原生 `TracerProvider`，用 `BatchSpanProcessor` 管理 OTLP/HTTP 导出器（可由 `otlpEnabled=false` 完全跳过）和可选的 NDJSON 文件导出器。提供 `startSpan()`、`withContext()`、`withContextAsync()`、`forceFlush()` 与 `shutdown()`；`init()` 第三参数 `onError` 用于把导出失败上报给宿主 logger（**只上报不抛出**）。 |
 
 ### src/config/
 
@@ -99,11 +111,20 @@ openclaw_telemetry/
 |------|------|
 | `observability.ts` | **配置管理模块**。定义 `ObservabilityConfig` 接口（21 个布尔/字符串字段，含 `otlpEnabled` 与各 `capture*` 开关）。导出 `parseObservabilityConfig()`（合并 JSON 与默认值）、`loadObservabilityConfig()`（从文件或 `OBSERVABILITY_CONFIG` 环境变量加载）、`resolveOtelSpanExportFilePath()`（解析 NDJSON 导出路径）。 |
 
-### src/exporters/
+### src/otel/ — 原生 OTLP 实现
+
+替代全部 `@opentelemetry/*` 三方件，仅依赖 Node.js 内置能力。
 
 | 文件 | 说明 |
 |------|------|
-| `jsonl-file-span-exporter.ts` | **自定义 SpanExporter 实现**。使用官方 `@opentelemetry/otlp-transformer` 的 `JsonTraceSerializer` 将每个导出批次序列化为标准 **OTLP/JSON** `ExportTraceServiceRequest`，以 NDJSON 形式（每行一个请求 JSON）追加写入本地文件，与 OTLP HTTP 上报载荷完全一致。自动创建所需目录，可直接被 OTel Collector `otlpjsonfile` receiver 等标准工具消费。 |
+| `index.ts` | **统一出口**。重导出各模块，接口形状对齐原 `@opentelemetry/api`（`SpanKind`、`SpanStatusCode`、`context`、`trace`、`Span`、`Tracer` 等），因此拦截器只需把 import 路径从 `@opentelemetry/api` 改为 `../otel/index.js`。 |
+| `primitives.ts` | **基础类型与工具**。`SpanKind` / `SpanStatusCode` 枚举（数值与 OTLP proto 一致）；`generateTraceId()`（16 字节/32 hex）与 `generateSpanId()`（8 字节/16 hex）基于 `randomFillSync`，并排除全零非法值；`nowEpochMs()` 用 `performance.now()` 提供亚毫秒精度，`epochMsToUnixNano()` 用 `BigInt` 换算为纳秒字符串避免浮点漂移。 |
+| `context.ts` | **上下文传播**。`Context` 为不可变 key/value 映射（`setValue` 返回新实例）；`context.active()` / `context.with()` 基于 `AsyncLocalStorage`，可跨 `await` 正确传播；`trace.setSpan()` / `getSpan()` 存取活跃 Span。`Tracer` 接口定义在此以避免与 `primitives.ts` 循环引用。 |
+| `span.ts` | **Span 实现**。`SpanImpl` 支持属性、状态、事件、`recordException()`；**`end()` 后所有改写被忽略**（符合 OTel 规范，防止迟到的 hook 回调污染已导出数据）；`end()` 时快照属性与事件数组，避免引用逃逸。`createSpan()` 从父上下文继承 trace id，无有效父级时开启新 trace。 |
+| `otlp-json.ts` | **OTLP/JSON 序列化**。构造标准 `ExportTraceServiceRequest`（`resourceSpans` → `scopeSpans` → `spans`）。`AnyValue` 映射区分整数（`intValue`）与非整数（`doubleValue`）——collector 会拒绝 `intValue` 中的浮点数；根 Span 省略 `parentSpanId`；`status` 仅在有 message 时携带该字段。 |
+| `exporters.ts` | **导出器**。`OtlpJsonFileSpanExporter` 以 NDJSON 追加写入（每批一行，目录自动创建）；`OtlpHttpSpanExporter` 用全局 `fetch` POST `application/json`，带 `AbortController` 超时（默认 10s）、非 2xx 抛错、读空响应体以复用连接。两者产出同一份载荷。 |
+| `batch-processor.ts` | **批处理器**。缓冲已结束 Span，达到 `maxExportBatchSize`（512）或 `scheduledDelayMs`（5s）时导出；`maxQueueSize`（2048）上限外丢弃并上报，防止内存无界增长；定时器 `unref()` 以免阻止进程退出；导出通过 promise 链**串行化**，避免批次在网络/文件上交错；`shutdown()` 先落盘再关闭导出器。 |
+| `provider.ts` | **TracerProvider**。持有处理器列表，签发 tracer（`startSpan` 注入 `onEnd` 回调分发到各处理器），提供 `forceFlush()` / `shutdown()`。**刻意不做全局注册**，因此与宿主自带的 OTel SDK 不会互相覆盖。 |
 
 ### src/interceptors/
 
@@ -134,7 +155,8 @@ openclaw_telemetry/
 | `test/harness/mock-host.ts` | **Mock 宿主**。复刻真实 `registerTypedHook` 的三项行为：未知 hook 名静默忽略、会话类 hook 受 `allowConversationAccess` 门禁、按优先级降序串行执行。另提供 modern / legacy / 无授权三种宿主画像，并在 `tool_result_persist` 返回 Promise 时抛错以守住同步契约。 |
 | `test/harness/fixtures.ts` | **事件样本**。字段名全部取自宿主 `hook-types-*.d.ts`（2026.7.1-2），确保测试与生产载荷同形。 |
 | `test/harness/scenario.ts` | **完整轮次驱动器**。按真实触发顺序驱动全部 hook，并把导出的 OTLP/JSON NDJSON 解码回 Span 供断言；以 session key 隔离不同场景。 |
-| `test/e2e.test.ts` | 端到端测试（25 用例）：注册完备性、逐 hook 数据采集、字段映射、向后兼容、授权门禁、capture 开关。 |
+| `test/e2e.test.ts` | hook 端到端测试（25 用例）：注册完备性、逐 hook 数据采集、字段映射、向后兼容、授权门禁、capture 开关。 |
+| `test/otel.test.ts` | 原生 OTLP 实现测试（27 用例）：OTLP/JSON 编码合规（纳秒字符串、int/double 区分、根 Span 无 `parentSpanId`、status message 条件携带）、Span 生命周期（`end()` 后冻结、trace id 继承）、上下文跨 `await` 传播、批处理（分批/队列上限/shutdown 落盘）、以及用**真实 HTTP 服务器**校验 OTLP/HTTP 载荷与 content-type。 |
 | `test/fixtures/host-hook-names.json` | 从本机宿主导出的权威 hook 名单（40 个 hook、7 个会话类），供无宿主环境（CI）校验完备性。 |
 | `scripts/generate-samples.ts` | 生成 `samples/` 语料：整轮 NDJSON、每 hook 一份样例 Span、机器可读覆盖清单。 |
 | `scripts/sync-host-hooks.ts` | 从本机安装的 OpenClaw 重新导出权威 hook 名单，用于宿主升级后检测新增 hook。 |
@@ -170,8 +192,10 @@ openclaw.session.end                   ← session.ts: session_end (优先级 -1
 
 3. **配置驱动的细粒度控制** — 每类拦截器可通过布尔标志独立启用/禁用（`captureAction`、`captureAgentRun`、`captureMessages`、`captureMessageSending`、`captureTool`、`captureToolResultPersist`、`captureModelCall`、`captureSession`、`captureCompaction`、`captureLlm*`），支持按需调节隐私和性能。
 
-4. **双通道导出** — Span 同时发送到 OTLP/HTTP 端点（用于 Jaeger/Grafana 等后端）和本地 NDJSON 文件（标准 OTLP/JSON 编码，用于离线分析），两者均通过 `BatchSpanProcessor` 批量处理；`otlpEnabled=false` 可切换为纯 NDJSON 离线模式。
+4. **双通道导出** — Span 同时发送到 OTLP/HTTP 端点（用于 Jaeger/Grafana 等后端）和本地 NDJSON 文件（标准 OTLP/JSON 编码，用于离线分析），两者均通过 `BatchSpanProcessor` 批量处理；`otlpEnabled=false` 可切换为纯 NDJSON 离线模式。两条通道各自独立批处理，一侧失败不影响另一侧。
 
 5. **跨版本兼容** — 依据宿主 `registerTypedHook` 的实测行为（未知 hook 名仅告警、不抛错），插件同时注册新旧两套名字：输入门禁 `before_agent_run` ↔ `before_agent_start`、压缩 `*_compaction` ↔ `*_context_prune`。同一宿主上两套名字互斥，故不会重复计数（有专用用例断言）。
 
-6. **容错设计** — 每个 hook 处理器内部 `try/catch` 吞掉异常，遥测故障绝不影响宿主主流程；`agent_end` 会关闭孤立的工具 Span 与残留的 Provider 调用 Span。
+6. **容错设计** — 每个 hook 处理器内部 `try/catch` 吞掉异常，遥测故障绝不影响宿主主流程；`agent_end` 会关闭孤立的工具 Span 与残留的 Provider 调用 Span。导出失败（网络不可达、磁盘写入失败）经批处理器 `onError` 上报到宿主 logger，**不向调用栈抛出**；队列超过上限时丢弃最新 Span 而非无界增长。
+
+7. **零三方件的数据面** — Span 创建、上下文传播、批处理、OTLP/JSON 序列化与导出全部原生实现（见 `src/otel/`），只用 Node 内置模块。provider 不做全局注册，与宿主自带 SDK 互不干扰；输出严格遵循 OTLP/JSON 映射，经与官方 SDK 基线的结构化 diff 验证一致。

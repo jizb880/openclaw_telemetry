@@ -1,4 +1,4 @@
-import { context, SpanKind, SpanStatusCode } from "@opentelemetry/api";
+import { context, SpanKind, SpanStatusCode } from "../otel/index.js";
 import type { ObservabilityConfig } from "../config/observability.js";
 import { jsonAttr } from "../util/attributes.js";
 import type { GlobalTracer } from "../tracer.js";
