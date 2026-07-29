@@ -92,7 +92,6 @@ Two complementary verification paths, plus a completeness self-check proving bot
 | Node.js | >= 18 (`engines` in `package.json`) | **v24.18.0 passing** |
 | npm | ships with Node | 11.16.0 |
 | Runtime dependencies | **none** (`dependencies` is empty; Node built-ins only) | — |
-| `jq` (optional) | only for inspecting spans in 3.2; a node fallback is given | not installed here; fallback used |
 
 Check versions first:
 
@@ -119,27 +118,27 @@ npm run build        # produces dist/index.js (plugin entry)
 npm run verify
 ```
 
-It runs three steps in order — typecheck → all tests (**52 cases**: 25 hook E2E + 27 native OTLP) → regenerate samples. Real output ends like:
+It runs three steps in order — typecheck → all tests (**57 cases**: 25 hook E2E + 27 native OTLP + 5 zero-external-dependency guards) → regenerate samples. Real output ends like:
 
 ```text
 > tsc --noEmit -p tsconfig.json                  # (1) typecheck: no output means pass
 > node --test ".test-build/test/**/*.test.js"    # (2) all tests
 ...
-ℹ tests 52
-ℹ pass 52
+ℹ tests 57
+ℹ pass 57
 ℹ fail 0
 > node .test-build/scripts/generate-samples.js   # (3) regenerate samples
 Wrote 17 hook sample spans, full-turn NDJSON (1 lines), and coverage.json to samples/
 ```
 
-**How to read the result: `pass 52 / fail 0` plus the final line writing 17 hook samples means every hook captures data on this host version.** Any failing step aborts the chain and `npm run verify` fails.
+**How to read the result: `pass 57 / fail 0` plus the final line writing 17 hook samples means every hook captures data on this host version.** Any failing step aborts the chain and `npm run verify` fails.
 
 For tests only, run `npm test`; the tail should read:
 
 ```text
-ℹ tests 52
-ℹ suites 10
-ℹ pass 52
+ℹ tests 57
+ℹ suites 11
+ℹ pass 57
 ℹ fail 0
 ```
 
@@ -197,52 +196,59 @@ Grant the plugin permission in the OpenClaw main config, or the host blocks thes
 
 Load `dist/index.js` in OpenClaw, then complete **one full real turn** that triggers **at least one tool call**. To cover the compaction hooks, extend the session until context compaction fires.
 
-**Step 5 · Inspect the exported spans**
+**Step 5 · Inspect the exported spans and check completeness**
 
-The output file is `./telemetry-out/openclaw-otel-spans.jsonl` (standard OTLP/JSON, one `ExportTraceServiceRequest` per line). List the span names seen:
+The output file is `./telemetry-out/openclaw-otel-spans.jsonl` (standard OTLP/JSON, one `ExportTraceServiceRequest` per line). The repo ships a checker script — **pure Node, no `jq` and no other external command**:
 
 ```bash
-# with jq:
-jq -r '.resourceSpans[].scopeSpans[].spans[].name' telemetry-out/openclaw-otel-spans.jsonl | sort -u
-
-# without jq (pure node fallback):
-node -e 'const fs=require("fs");const names=fs.readFileSync("telemetry-out/openclaw-otel-spans.jsonl","utf8").trim().split("\n").flatMap(l=>{const o=JSON.parse(l);return o.resourceSpans.flatMap(r=>r.scopeSpans.flatMap(s=>s.spans.map(x=>x.name)))});[...new Set(names)].sort().forEach(n=>console.log(n))'
+npm run inspect                                  # defaults to ./telemetry-out/openclaw-otel-spans.jsonl
+npm run inspect -- /path/to/spans.jsonl           # explicit file
+npm run inspect -- /path/to/spans.jsonl --json    # machine-readable, for CI
 ```
 
-One complete turn should show the same 15 spans as the samples (tool span names vary with the tool you actually call):
+**Real output** for one complete turn (15 spans; tool span names vary with the tool you actually call):
 
 ```text
-openclaw.session.start        openclaw.llm.input            openclaw.tool.web_search
-openclaw.request             openclaw.model_call           openclaw.tool.exec
-openclaw.action              openclaw.llm.output           openclaw.tool.result_persist
-openclaw.agent.run           openclaw.compaction.before    openclaw.message.sending
-openclaw.session.end         openclaw.compaction.after     openclaw.message.out
+file    telemetry-out/openclaw-otel-spans.jsonl
+batches 1
+spans   15 distinct
+
+  ✓ openclaw.action                 ✓ openclaw.message.out
+  ✓ openclaw.agent.run              ✓ openclaw.message.sending
+  ✓ openclaw.compaction.after       ✓ openclaw.model_call
+  ✓ openclaw.compaction.before      ✓ openclaw.request
+  ✓ openclaw.llm.input              ✓ openclaw.session.end
+  ✓ openclaw.llm.output             ✓ openclaw.session.start
+  ✓ openclaw.tool.exec              ✓ openclaw.tool.result_persist
+  ✓ openclaw.tool.web_search
+
+✓ ALL COVERED — every expected hook span is present (14 expected)
 ```
 
-**Step 6 · Completeness check**
+> Columns above are for readability; the script prints one span per line, alphabetically.
 
-Cross-check against [section 1](#1-hook-coverage-overview), or list spans that should have appeared but did not:
+**Step 6 · Read the result**
 
-```bash
-# with jq:
-comm -13 \
-  <(jq -r '.resourceSpans[].scopeSpans[].spans[].name' telemetry-out/openclaw-otel-spans.jsonl | sort -u) \
-  <(jq -r '.hooks[].span' samples/coverage.json | sort -u)
+**`✓ ALL COVERED` with exit code 0 means your manual test covered every triggerable hook on this host version.** Otherwise the script names what is missing and exits 1:
 
-# without jq (pure node fallback):
-node -e 'const fs=require("fs");const got=new Set(fs.readFileSync("telemetry-out/openclaw-otel-spans.jsonl","utf8").trim().split("\n").flatMap(l=>{const o=JSON.parse(l);return o.resourceSpans.flatMap(r=>r.scopeSpans.flatMap(s=>s.spans.map(x=>x.name)))}));const want=[...new Set(JSON.parse(fs.readFileSync("samples/coverage.json","utf8")).hooks.map(h=>h.span))];const miss=want.filter(n=>!got.has(n));console.log(miss.length?"MISSING: "+miss.join(", "):"ALL COVERED OK")'
+```text
+✗ MISSING 4 span(s):
+  - openclaw.compaction.after
+  - openclaw.compaction.before
+  - openclaw.llm.input
+  - openclaw.llm.output
 ```
 
-**How to read the result: empty output (or `ALL COVERED OK`) means your manual test covered every triggerable hook on this host version.** Any output means that hook did not fire — common causes:
+Use the table to locate the cause:
 
 | Missing span | Usual cause | Fix |
 |------|------|------|
 | `openclaw.llm.input` / `openclaw.llm.output` / `openclaw.agent.run` | conversation access not granted | do step 3 |
 | `openclaw.tool.*` / `openclaw.tool.result_persist` | no tool call this turn; `tool_result_persist` also needs host >= 2026.7 | make the turn call a tool |
 | `openclaw.compaction.*` | session never reached context compaction | keep the session going |
-| all missing / no file | plugin not loaded, `enabled=false`, or output dir not writable | check the `[otel]` lines in the gateway log |
+| `export file not found` | plugin not loaded, `enabled=false`, or output dir not writable | check the `[otel]` lines in the gateway log |
 
-> Tool spans are dynamic `openclaw.tool.<name>`; `coverage.json` uses `openclaw.tool.web_search` as a representative. If your tool name differs it will be reported as "missing" — as long as **any** `openclaw.tool.*` is present, the tool path is covered.
+> Tool spans are dynamic `openclaw.tool.<name>`. The script accounts for this: any captured `openclaw.tool.*` satisfies the tool path, so calling a tool other than `web_search` is never falsely reported as missing.
 
 ---
 
@@ -342,8 +348,9 @@ import {
 |------|------|
 | `npm run build` | Compile the plugin to `dist/`. |
 | `npm run typecheck` | Type-check only. |
-| `npm test` | Compile and run all tests (52 cases). |
+| `npm test` | Compile and run all tests (57 cases). |
 | `npm run samples` | Regenerate the samples under `samples/`. |
+| `npm run inspect` | Check hook coverage of an exported NDJSON file (pure Node, no external commands). |
 | `npm run verify` | **typecheck + test + samples** in one command. |
 | `npm run sync:host-hooks` | Re-export the authoritative hook list from the installed host. |
 | `npm run clean` | Remove `dist/` and `.test-build/`. |

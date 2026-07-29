@@ -92,7 +92,6 @@ npm run build      # 产出 dist/index.js（插件入口）
 | Node.js | ≥ 18（`package.json` 的 `engines`） | **v24.18.0 通过** |
 | npm | 随 Node 附带 | 11.16.0 |
 | 运行时三方依赖 | **无**（`dependencies` 为空，仅用 Node 内置能力） | — |
-| `jq`（可选） | 仅 3.2 手测时用来查看落盘 Span；未装也有 node 回退命令 | 本机未装，下文给出替代 |
 
 先确认版本：
 
@@ -119,27 +118,27 @@ npm run build        # 产出 dist/index.js（插件入口）
 npm run verify
 ```
 
-该命令依次执行三步——类型检查 → 全部测试（**52 个用例**：25 个 hook 端到端 + 27 个原生 OTLP 实现）→ 重新生成样例。真实输出结尾形如：
+该命令依次执行三步——类型检查 → 全部测试（**57 个用例**：25 个 hook 端到端 + 27 个原生 OTLP 实现 + 5 个零外部依赖守卫）→ 重新生成样例。真实输出结尾形如：
 
 ```text
 > tsc --noEmit -p tsconfig.json          # ① 类型检查：无输出即通过
 > node --test ".test-build/test/**/*.test.js"   # ② 全部测试
 …
-ℹ tests 52
-ℹ pass 52
+ℹ tests 57
+ℹ pass 57
 ℹ fail 0
 > node .test-build/scripts/generate-samples.js  # ③ 重新生成样例
 Wrote 17 hook sample spans, full-turn NDJSON (1 lines), and coverage.json to samples/
 ```
 
-**验证结果解读：看到 `pass 52 / fail 0`、且末行成功写出 17 份 hook 样例，即代表当前宿主版本下全部 hook 都能采到数据。** 任一步非零退出都会中断，`npm run verify` 随即失败。
+**验证结果解读：看到 `pass 57 / fail 0`、且末行成功写出 17 份 hook 样例，即代表当前宿主版本下全部 hook 都能采到数据。** 任一步非零退出都会中断，`npm run verify` 随即失败。
 
 只想跑测试用 `npm test`，结尾应为：
 
 ```text
-ℹ tests 52
-ℹ suites 10
-ℹ pass 52
+ℹ tests 57
+ℹ suites 11
+ℹ pass 57
 ℹ fail 0
 ```
 
@@ -197,52 +196,59 @@ npm run build          # 产出 dist/index.js
 
 在 OpenClaw 中加载 `dist/index.js`，然后完成**一整轮真实对话**，且**至少触发一次工具调用**；若要覆盖压缩类 hook，把会话拉长到触发上下文压缩为止。
 
-**第 5 步 · 查看落盘 Span**
+**第 5 步 · 查看落盘 Span 并核对完备性**
 
-落盘文件为 `./telemetry-out/openclaw-otel-spans.jsonl`（标准 OTLP/JSON，每行一个 `ExportTraceServiceRequest`）。列出出现过的 Span 名：
+落盘文件为 `./telemetry-out/openclaw-otel-spans.jsonl`（标准 OTLP/JSON，每行一个 `ExportTraceServiceRequest`）。仓库自带核对脚本，**纯 Node 实现，不依赖 `jq` 或任何外部命令**:
 
 ```bash
-# 装了 jq：
-jq -r '.resourceSpans[].scopeSpans[].spans[].name' telemetry-out/openclaw-otel-spans.jsonl | sort -u
-
-# 没装 jq（纯 node 回退，有 Node 即可）：
-node -e 'const fs=require("fs");const names=fs.readFileSync("telemetry-out/openclaw-otel-spans.jsonl","utf8").trim().split("\n").flatMap(l=>{const o=JSON.parse(l);return o.resourceSpans.flatMap(r=>r.scopeSpans.flatMap(s=>s.spans.map(x=>x.name)))});[...new Set(names)].sort().forEach(n=>console.log(n))'
+npm run inspect                                  # 默认读 ./telemetry-out/openclaw-otel-spans.jsonl
+npm run inspect -- /path/to/spans.jsonl           # 指定文件
+npm run inspect -- /path/to/spans.jsonl --json    # 机器可读输出，便于接 CI
 ```
 
-一整轮完整对话应看到与样例一致的 15 个 Span（工具 Span 名随你实际调用的工具变化）：
+一整轮完整对话的**真实输出**如下（15 个 Span，工具 Span 名随你实际调用的工具变化）:
 
 ```text
-openclaw.session.start        openclaw.llm.input            openclaw.tool.web_search
-openclaw.request             openclaw.model_call           openclaw.tool.exec
-openclaw.action              openclaw.llm.output           openclaw.tool.result_persist
-openclaw.agent.run           openclaw.compaction.before    openclaw.message.sending
-openclaw.session.end         openclaw.compaction.after     openclaw.message.out
+file    telemetry-out/openclaw-otel-spans.jsonl
+batches 1
+spans   15 distinct
+
+  ✓ openclaw.action                 ✓ openclaw.message.out
+  ✓ openclaw.agent.run              ✓ openclaw.message.sending
+  ✓ openclaw.compaction.after       ✓ openclaw.model_call
+  ✓ openclaw.compaction.before      ✓ openclaw.request
+  ✓ openclaw.llm.input              ✓ openclaw.session.end
+  ✓ openclaw.llm.output             ✓ openclaw.session.start
+  ✓ openclaw.tool.exec              ✓ openclaw.tool.result_persist
+  ✓ openclaw.tool.web_search
+
+✓ ALL COVERED — every expected hook span is present (14 expected)
 ```
 
-**第 6 步 · 完备性核对**
+> 上面为便于阅读做了分栏，脚本实际按字母序单列输出。
 
-对照[第一节](#一采集的-hook-点全景)逐一核对，或用下面命令直接列出“本应出现却缺失”的 Span：
+**第 6 步 · 判读结果**
 
-```bash
-# 装了 jq：
-comm -13 \
-  <(jq -r '.resourceSpans[].scopeSpans[].spans[].name' telemetry-out/openclaw-otel-spans.jsonl | sort -u) \
-  <(jq -r '.hooks[].span' samples/coverage.json | sort -u)
+**`✓ ALL COVERED` 且退出码为 0，即代表当前宿主版本下手测已覆盖全部可触发的 hook。** 若缺失，脚本会明确列出并以退出码 1 结束：
 
-# 没装 jq（纯 node 回退）：
-node -e 'const fs=require("fs");const got=new Set(fs.readFileSync("telemetry-out/openclaw-otel-spans.jsonl","utf8").trim().split("\n").flatMap(l=>{const o=JSON.parse(l);return o.resourceSpans.flatMap(r=>r.scopeSpans.flatMap(s=>s.spans.map(x=>x.name)))}));const want=[...new Set(JSON.parse(fs.readFileSync("samples/coverage.json","utf8")).hooks.map(h=>h.span))];const miss=want.filter(n=>!got.has(n));console.log(miss.length?"缺失: "+miss.join(", "):"全部覆盖 OK")'
+```text
+✗ MISSING 4 span(s):
+  - openclaw.compaction.after
+  - openclaw.compaction.before
+  - openclaw.llm.input
+  - openclaw.llm.output
 ```
 
-**验证结果解读：输出为空（或 `全部覆盖 OK`）即代表当前宿主版本下手测已覆盖全部可触发的 hook。** 若有输出，说明对应 hook 未被触发，常见原因：
+对照下表定位原因：
 
 | 缺失的 Span | 通常原因 | 处理 |
 |------|------|------|
 | `openclaw.llm.input` / `openclaw.llm.output` / `openclaw.agent.run` | 未开会话访问授权 | 补第 3 步 |
-| `openclaw.tool.*` / `openclaw.tool.result_persist` | 该轮没调用工具；`tool_result_persist` 还需宿主 ≥ 2026.7 | 让对话触发一次工具调用 |
+| `openclaw.tool.*` / `openclaw.tool.result_persist` | 该轮没调用工具;`tool_result_persist` 还需宿主 ≥ 2026.7 | 让对话触发一次工具调用 |
 | `openclaw.compaction.*` | 会话没长到触发上下文压缩 | 继续加长会话 |
-| 全部缺失 / 文件不存在 | 插件未加载、`enabled=false`、或落盘目录不可写 | 查网关日志中的 `[otel]` 行 |
+| 提示 `export file not found` | 插件未加载、`enabled=false`、或落盘目录不可写 | 查网关日志中的 `[otel]` 行 |
 
-> 工具 Span 名是动态的 `openclaw.tool.<工具名>`，`coverage.json` 里以 `openclaw.tool.web_search` 作代表。若你实际调用的工具名不同，它会被上面的命令误报为“缺失”——只要落盘中存在**任意** `openclaw.tool.*`，即视为工具链路已覆盖。
+> 工具 Span 名是动态的 `openclaw.tool.<工具名>`。脚本已按此处理：只要落盘中存在**任意** `openclaw.tool.*`，即视为工具链路已覆盖，不会因为你调的工具不叫 `web_search` 而误报缺失。
 
 ---
 
@@ -364,8 +370,9 @@ import {
 |------|------|
 | `npm run build` | 编译插件到 `dist/`。 |
 | `npm run typecheck` | 仅类型检查。 |
-| `npm test` | 编译并运行全部测试（52 用例）。 |
+| `npm test` | 编译并运行全部测试（57 用例）。 |
 | `npm run samples` | 重新生成 `samples/` 下的采集样例。 |
+| `npm run inspect` | 核对落盘 NDJSON 的 hook 覆盖情况（纯 Node，无外部命令依赖）。 |
 | `npm run verify` | **typecheck + test + samples**，一条命令完成全部验证。 |
 | `npm run sync:host-hooks` | 从本机安装的 OpenClaw 重新导出权威 hook 列表。 |
 | `npm run clean` | 清理 `dist/` 与 `.test-build/`。 |

@@ -20,6 +20,7 @@
     "build:test": "tsc -p tsconfig.test.json",
     "test": "npm run build:test && node --test \".test-build/test/**/*.test.js\"",
     "samples": "npm run build:test && node .test-build/scripts/generate-samples.js",
+    "inspect": "npm run build:test && node .test-build/scripts/inspect-spans.js",
     "verify": "npm run typecheck && npm run test && npm run samples",
     "sync:host-hooks": "npm run build:test && node .test-build/scripts/sync-host-hooks.js",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true});require('fs').rmSync('.test-build',{recursive:true,force:true})\""
